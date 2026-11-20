@@ -169,4 +169,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; cancelAnimationFrame(drawFrame); canvasStream?.getVideoTracks().forEach(t => t.stop()); ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.play.disabled = ui.seek.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=6').catch(console.warn);
