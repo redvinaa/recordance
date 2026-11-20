@@ -37,7 +37,7 @@ If your computer's IP changes, generate a new certificate for the new address. A
 
 1. Connect your AirPods. Choose an audio file and tap **Turn on camera**.
 2. Choose the front or back camera. The front camera can be mirrored; this setting applies to the preview and saved video. Tap **Record**, perform, and tap **Stop recording**. Recording starts the song from its beginning.
-3. Play the preview. Drag **Music timing** toward **Music earlier** or **Music later** while it plays; this moves the soundtrack relative to the captured video, rather than seeking to a fixed position in the song. The range is ±1 second in 10 ms steps. At a boundary where the chosen offset would require audio before the song begins or after it ends, that part will be silent.
+3. Play the preview. Open **Music timing** and drag the slider toward **Music earlier** or **Music later** while it plays; this moves the soundtrack relative to the captured video, rather than seeking to a fixed position in the song. The range is ±200 milliseconds in 10 ms steps. At a boundary where the chosen offset would require audio before the song begins or after it ends, that part will be silent.
 4. Tap **Save video**. The app plays through the take to render the export in real time. Keep the screen awake and this page in the foreground. When finished, use the browser's download/share controls to save the file to Photos. The generated format depends on browser support.
 5. Tap **Record again** to make another take with the same song and timing setting.
 
@@ -55,4 +55,6 @@ For a quick sync check, record yourself clapping or making a visible gesture on 
 
 On the Jetson, the static files are in `~/recordance/public` and the `recordance` Docker container serves them at `http://127.0.0.1:8787`. Docker's `unless-stopped` restart policy brings it back after reboot. A Cloudflare Tunnel connector running on the Jetson can route `recordance.pigeo.online` to that local HTTP address. The connector must be installed and authenticated separately using Cloudflare's tunnel instructions; do not put its token in this repository. The hostname alone does not start a connector.
 
-To update an existing deployment from a local checkout, copy `public/` to `~/recordance/` on the Jetson; the container mounts that directory read-only, so it serves updated files without rebuilding. The repository's Node server is used for local development, whereas the Jetson container uses Python's static server.
+To update an existing deployment from a local checkout, copy `public/` to `~/recordance/` on the Jetson; the container mounts that directory read-only, so it serves updated files without rebuilding. The repository's Node server is used for local development, whereas the Jetson container uses an unprivileged Nginx server with a read-only filesystem.
+
+Camera quality controls request the selected resolution and frame rate; the browser may choose different settings, which are shown when available. Export uses the recorded dimensions and requests up to the captured frame rate, but browser and device performance may reduce the final frame rate.
