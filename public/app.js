@@ -198,7 +198,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=14');
+    const { exportRecording } = await import('/fast-export.js?v=15');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -210,4 +210,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=14').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=15').catch(console.warn);
