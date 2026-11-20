@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const ui = Object.fromEntries(['song','songName','camera','cameraLabel','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','record','stop','setup','review','preview','play','seek','playTime','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
+const ui = Object.fromEntries(['song','songName','demo','camera','cameraLabel','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','record','stop','setup','review','preview','play','seek','playTime','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
 let stream, recorder, chunks = [], videoURL, songURL, songStart = 0, animation, exporting = false;
 let audioContext, musicNode, videoNode, mix;
 let facing = 'user', recordedMirrored = false, recordedFps = 30;
@@ -40,11 +40,24 @@ function sync() {
     if (music.paused) music.play().catch(error);
   }
 }
+let demoPlaying = false;
+function stopDemo() { if (!demoPlaying) return; music.pause(); music.currentTime = 0; demoPlaying = false; ui.demo.textContent = '▶'; ui.demo.setAttribute('aria-label', 'Preview song'); }
+ui.demo.onclick = async () => {
+  if (demoPlaying) { stopDemo(); return; }
+  try {
+    if (music.readyState < 1) await new Promise((resolve, reject) => { music.addEventListener('loadedmetadata', resolve, { once: true }); music.addEventListener('error', reject, { once: true }); });
+    music.currentTime = Number.isFinite(music.duration) ? music.duration * 0.3 : 0;
+    demoPlaying = true; ui.demo.textContent = '×'; ui.demo.setAttribute('aria-label', 'Stop song preview');
+    await music.play();
+  } catch (e) { stopDemo(); error(e); }
+};
+music.addEventListener('ended', () => { if (demoPlaying) stopDemo(); });
 ui.song.onchange = () => {
+  stopDemo();
   const file = ui.song.files[0]; if (!file) return;
   if (songURL) URL.revokeObjectURL(songURL);
   songURL = URL.createObjectURL(file); music.src = songURL;
-  ui.songName.textContent = file.name; ready(); message('');
+  ui.songName.textContent = file.name; ui.demo.disabled = false; ready(); message('');
 };
 function updateCameraControls() {
   ui.front.setAttribute('aria-pressed', String(facing === 'user'));
@@ -82,7 +95,7 @@ updateCameraControls();
 ui.record.onclick = async () => {
   try {
     if (!window.MediaRecorder) throw new Error('This browser does not support video recording.');
-    await audioSetup(); music.pause(); music.currentTime = 0;
+    stopDemo(); await audioSetup(); music.pause(); music.currentTime = 0;
     recordedMirrored = facing === 'user' && ui.mirror.checked;
     recordedFps = stream.getVideoTracks()[0].getSettings().frameRate || 30;
     ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = true;

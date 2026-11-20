@@ -10,7 +10,7 @@
 <main><header><h1><img src="/icon.svg" alt="" class="brand-icon">Recordance</h1></header>
 <section id="setup">
   <div class="section-title">Music</div>
-  <label class="file row-button"><span class="icon-tile"><svg class="icon"><use href="#i-music"/></svg></span><span class="row-text"><strong>Choose a song</strong><small id="songName">Select an audio file from Files</small></span><span class="chevron" aria-hidden="true">›</span><input id="song" type="file" accept=".mp3,.m4a,.aac,.wav,.aiff,.aif,.flac,.ogg,.opus"></label>
+  <div class="song-row"><label class="file row-button"><span class="icon-tile"><svg class="icon"><use href="#i-music"/></svg></span><span class="row-text"><strong>Choose a song</strong><small id="songName">Select an audio file from Files</small></span><span class="chevron" aria-hidden="true">›</span><input id="song" type="file" accept=".mp3,.m4a,.aac,.wav,.aiff,.aif,.flac,.ogg,.opus"></label><button id="demo" type="button" aria-label="Preview song" class="demo" disabled>▶</button></div>
   <div class="section-title camera-title">Camera</div>
   <div class="segmented" role="group" aria-label="Camera facing"><button id="front" type="button" aria-pressed="true">Front</button><button id="back" type="button" aria-pressed="false">Back</button></div>
   <div class="settings"><label id="mirrorRow" class="setting"><span>Mirror front camera</span><input type="checkbox" id="mirror" role="switch" checked></label></div>
