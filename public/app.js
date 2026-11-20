@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const ui = Object.fromEntries(['song','songName','camera','mic','live','liveFrame','front','back','mirror','mirrorRow','record','stop','setup','review','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
+const ui = Object.fromEntries(['song','songName','camera','cameraLabel','live','liveFrame','front','back','mirror','mirrorRow','record','stop','setup','review','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
 let stream, recorder, chunks = [], videoURL, songURL, songStart = 0, animation, exporting = false;
 let audioContext, musicNode, videoNode, mix;
 let facing = 'user', recordedMirrored = false;
@@ -57,9 +57,9 @@ async function startCamera() {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access needs HTTPS or localhost. See the README for iPhone setup.');
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null; ui.live.srcObject = null; ui.liveFrame.classList.add('empty'); ready();
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: facing } }, audio: ui.mic.checked });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: facing } }, audio: false });
     ui.live.srcObject = stream; await ui.live.play(); ui.liveFrame.classList.remove('empty');
-    ui.camera.textContent = 'Restart camera'; ready(); message('Camera ready.');
+    ui.cameraLabel.textContent = 'Restart'; ready(); message('Camera ready.');
   } catch (e) { stream = null; ready(); error(e); }
 }
 ui.camera.onclick = startCamera;
@@ -71,20 +71,20 @@ async function setFacing(next) {
 ui.front.onclick = () => setFacing('user');
 ui.back.onclick = () => setFacing('environment');
 ui.mirror.onchange = updateCameraControls;
-ui.mic.onchange = () => { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; ui.live.srcObject = null; ui.liveFrame.classList.add('empty'); ready(); message('Restart the camera to change microphone settings.'); } };
+
 updateCameraControls();
 ui.record.onclick = async () => {
   try {
     if (!window.MediaRecorder) throw new Error('This browser does not support video recording.');
     await audioSetup(); music.pause(); music.currentTime = 0;
     recordedMirrored = facing === 'user' && ui.mirror.checked;
-    ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.mic.disabled = ui.camera.disabled = true;
+    ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.camera.disabled = true;
     chunks = []; recorder = new MediaRecorder(stream);
     recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     recorder.onerror = e => error(e.error || new Error('Recording failed.'));
     recorder.onstop = () => {
       music.pause();
-      ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.mic.disabled = ui.camera.disabled = false;
+      ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.camera.disabled = false;
       if (!chunks.length) { message('No video was recorded. Please try again.'); return; }
       if (videoURL) URL.revokeObjectURL(videoURL);
       videoURL = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType || 'video/mp4' }));
@@ -96,7 +96,7 @@ ui.record.onclick = async () => {
     await music.play();
     songStart = (performance.now() - recordingStart) / 1000;
     ui.record.hidden = true; ui.stop.hidden = false; message('Recording…');
-  } catch (e) { if (recorder?.state === 'recording') recorder.stop(); else ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.mic.disabled = ui.camera.disabled = false; error(e); }
+  } catch (e) { if (recorder?.state === 'recording') recorder.stop(); else ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.camera.disabled = false; error(e); }
 };
 ui.stop.onclick = () => { if (recorder?.state === 'recording') recorder.stop(); };
 ui.preview.onplay = async () => { try { await audioSetup(); sync(); } catch (e) { error(e); } };
