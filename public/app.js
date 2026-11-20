@@ -23,14 +23,21 @@ async function audioSetup() {
 function stopSync() { cancelAnimationFrame(animation); music.pause(); }
 // songStart is the time on the camera timeline when the song began. Positive
 // adjustment delays the song relative to that original alignment.
-function sync(force = false) {
+function sync() {
+  cancelAnimationFrame(animation);
+  if (ui.preview.paused) return;
   const target = ui.preview.currentTime - songStart - offset();
-  if (target < 0 || target >= music.duration) { music.pause(); }
-  else {
-    if (force || Math.abs(music.currentTime - target) > 0.18) music.currentTime = target;
-    if (!ui.preview.paused && music.paused) music.play().catch(error);
+  if (target < 0) {
+    music.pause();
+    // Wait for the video to reach the start of the song. Do not repeatedly
+    // seek during normal playback: Safari may stall on frequent seeks.
+    animation = requestAnimationFrame(sync);
+  } else if (Number.isFinite(music.duration) && target >= music.duration) {
+    music.pause();
+  } else {
+    if (Math.abs(music.currentTime - target) > 0.03) music.currentTime = target;
+    if (music.paused) music.play().catch(error);
   }
-  if (!ui.preview.paused) animation = requestAnimationFrame(() => sync());
 }
 ui.song.onchange = () => {
   const file = ui.song.files[0]; if (!file) return;
@@ -71,11 +78,11 @@ ui.record.onclick = async () => {
   } catch (e) { if (recorder?.state === 'recording') recorder.stop(); error(e); }
 };
 ui.stop.onclick = () => { if (recorder?.state === 'recording') recorder.stop(); };
-ui.preview.onplay = async () => { try { await audioSetup(); stopSync(); sync(true); } catch (e) { error(e); } };
+ui.preview.onplay = async () => { try { await audioSetup(); sync(); } catch (e) { error(e); } };
 ui.preview.onpause = stopSync;
-ui.preview.onseeked = () => { if (!ui.preview.paused) { stopSync(); sync(true); } };
+ui.preview.onseeked = () => { if (!ui.preview.paused) sync(); };
 ui.preview.onended = stopSync;
-ui.offset.oninput = () => { format(); if (!ui.preview.paused) { stopSync(); sync(true); } };
+ui.offset.oninput = () => { format(); if (!ui.preview.paused) sync(); };
 ui.again.onclick = () => { stopSync(); ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load(); ui.review.hidden = true; ui.setup.hidden = false; ready(); message(''); };
 ui.save.onclick = async () => {
   if (exporting) return;
