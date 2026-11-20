@@ -61,4 +61,4 @@ Camera quality controls request the selected resolution and frame rate; the brow
 
 The browser exporter is bundled from Mediabunny. Run `npm install` and `npm run build` after changing `src/fast-export.js`.
 
-Use the camera icon to take a photo from the live camera preview. The selected delay and countdown beeps apply to both photos and videos. A photo can be replaced by taking another; the photo button is disabled while reviewing a video. Photos are captured at the video preview resolution.
+Use the camera icon to take a photo from the live camera preview. The selected delay and countdown beeps apply to both photos and videos. After taking a photo, tap the crossed-out camera button to return to the live preview, then tap again to take another; the photo button is disabled while reviewing a video. Photos are captured at the video preview resolution.
