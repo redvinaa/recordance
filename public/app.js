@@ -41,13 +41,13 @@ function sync() {
   }
 }
 let demoPlaying = false;
-function stopDemo() { if (!demoPlaying) return; music.pause(); music.currentTime = 0; demoPlaying = false; ui.demo.textContent = '▶'; ui.demo.setAttribute('aria-label', 'Preview song'); }
+function stopDemo() { if (!demoPlaying) return; music.pause(); music.currentTime = 0; demoPlaying = false; ui.demo.classList.remove('is-playing'); ui.demo.setAttribute('aria-label', 'Preview song'); }
 ui.demo.onclick = async () => {
   if (demoPlaying) { stopDemo(); return; }
   try {
     if (music.readyState < 1) await new Promise((resolve, reject) => { music.addEventListener('loadedmetadata', resolve, { once: true }); music.addEventListener('error', reject, { once: true }); });
     music.currentTime = Number.isFinite(music.duration) ? music.duration * 0.3 : 0;
-    demoPlaying = true; ui.demo.textContent = '×'; ui.demo.setAttribute('aria-label', 'Stop song preview');
+    demoPlaying = true; ui.demo.classList.add('is-playing'); ui.demo.setAttribute('aria-label', 'Stop song preview');
     await music.play();
   } catch (e) { stopDemo(); error(e); }
 };
@@ -169,4 +169,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; cancelAnimationFrame(drawFrame); canvasStream?.getVideoTracks().forEach(t => t.stop()); ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.play.disabled = ui.seek.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=7').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=8').catch(console.warn);
