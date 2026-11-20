@@ -101,7 +101,7 @@ function onOrientation(event) {
   if (angle > 90) angle -= 180;
   if (angle < -90) angle += 180;
   ui.level.hidden = false;
-  ui.levelBar.style.transform = `translate(-50%, -50%) rotate(${-angle}deg)`;
+  ui.levelBar.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
   ui.level.classList.toggle('is-level', Math.abs(angle) < 2);
   ui.level.setAttribute('aria-label', `Camera level: ${Math.round(angle)} degrees`);
 }
@@ -198,7 +198,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=13');
+    const { exportRecording } = await import('/fast-export.js?v=14');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -210,4 +210,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=13').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=14').catch(console.warn);
