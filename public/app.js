@@ -1,8 +1,8 @@
 const $ = id => document.getElementById(id);
-const ui = Object.fromEntries(['song','songName','demo','camera','cameraLabel','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','record','stop','setup','review','preview','play','seek','playTime','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
-let stream, recorder, chunks = [], videoURL, songURL, songStart = 0, animation, exporting = false;
-let audioContext, musicNode, videoNode, mix;
-let facing = 'user', recordedMirrored = false, recordedFps = 30;
+const ui = Object.fromEntries(['song','songName','demo','camera','cameraLabel','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','record','stop','setup','review','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
+let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false;
+let audioContext, musicNode;
+let facing = 'user', recordedMirrored = false;
 const music = new Audio();
 music.preload = 'auto';
 const message = text => { ui.status.textContent = text; };
@@ -13,11 +13,8 @@ function error(e) { console.error(e); message(e?.message || String(e)); }
 async function audioSetup() {
   if (!audioContext) {
     audioContext = new AudioContext();
-    mix = audioContext.createMediaStreamDestination();
     musicNode = audioContext.createMediaElementSource(music);
-    videoNode = audioContext.createMediaElementSource(ui.preview);
-    musicNode.connect(audioContext.destination); musicNode.connect(mix);
-    videoNode.connect(audioContext.destination); videoNode.connect(mix);
+    musicNode.connect(audioContext.destination);
   }
   if (audioContext.state !== 'running') await audioContext.resume();
 }
@@ -56,7 +53,7 @@ ui.song.onchange = () => {
   stopDemo();
   const file = ui.song.files[0]; if (!file) return;
   if (songURL) URL.revokeObjectURL(songURL);
-  songURL = URL.createObjectURL(file); music.src = songURL;
+  songFile = file; songURL = URL.createObjectURL(file); music.src = songURL;
   ui.songName.textContent = file.name; ui.demo.disabled = false; ready(); message('');
 };
 function updateCameraControls() {
@@ -97,7 +94,6 @@ ui.record.onclick = async () => {
     if (!window.MediaRecorder) throw new Error('This browser does not support video recording.');
     stopDemo(); await audioSetup(); music.pause(); music.currentTime = 0;
     recordedMirrored = facing === 'user' && ui.mirror.checked;
-    recordedFps = stream.getVideoTracks()[0].getSettings().frameRate || 30;
     ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = true;
     chunks = []; recorder = new MediaRecorder(stream);
     recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
@@ -107,9 +103,10 @@ ui.record.onclick = async () => {
       ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = false;
       if (!chunks.length) { message('No video was recorded. Please try again.'); return; }
       if (videoURL) URL.revokeObjectURL(videoURL);
-      videoURL = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType || 'video/mp4' }));
-      ui.preview.src = videoURL; ui.preview.classList.toggle('mirrored', recordedMirrored); ui.setup.hidden = true; ui.review.hidden = false;
-      ui.record.hidden = false; ui.stop.hidden = true; ready(); message('Preview your recording and adjust the music timing.');
+      videoBlob = new Blob(chunks, { type: recorder.mimeType || 'video/mp4' });
+      videoURL = URL.createObjectURL(videoBlob);
+      ui.preview.src = videoURL; ui.setup.hidden = true; ui.review.hidden = false;
+      ui.record.hidden = false; ui.stop.hidden = true; ready(); message(recordedMirrored ? 'Review is unmirrored; saved video will be mirrored.' : '');
     };
     recorder.start(250);
     const recordingStart = performance.now();
@@ -119,54 +116,29 @@ ui.record.onclick = async () => {
   } catch (e) { if (recorder?.state === 'recording') recorder.stop(); else ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = false; error(e); }
 };
 ui.stop.onclick = () => { if (recorder?.state === 'recording') recorder.stop(); };
-ui.play.onclick = () => { if (ui.preview.paused) ui.preview.play().catch(error); else ui.preview.pause(); };
-ui.preview.onplay = async () => { ui.play.textContent = '❚❚'; ui.play.setAttribute('aria-label', 'Pause video'); try { await audioSetup(); sync(); } catch (e) { error(e); } };
-ui.preview.onpause = () => { stopSync(); ui.play.textContent = '▶'; ui.play.setAttribute('aria-label', 'Play video'); };
+ui.preview.onplay = async () => { try { await audioSetup(); sync(); } catch (e) { error(e); } };
+ui.preview.onpause = stopSync;
 ui.preview.onseeked = () => { if (!ui.preview.paused) sync(); };
 ui.preview.onended = stopSync;
-ui.preview.ontimeupdate = () => { if (Number.isFinite(ui.preview.duration) && ui.preview.duration > 0) ui.seek.value = Math.round(ui.preview.currentTime / ui.preview.duration * 1000); const t = Math.floor(ui.preview.currentTime || 0); ui.playTime.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
-ui.seek.oninput = () => { if (Number.isFinite(ui.preview.duration)) ui.preview.currentTime = Number(ui.seek.value) / 1000 * ui.preview.duration; };
 ui.offset.oninput = () => { format(); if (!ui.preview.paused) sync(); };
 ui.again.onclick = () => { stopSync(); ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load(); ui.review.hidden = true; ui.setup.hidden = false; ready(); message(''); };
 ui.save.onclick = async () => {
   if (exporting) return;
-  let exportRecorder, canvasStream, drawFrame;
   try {
-    exporting = true; ui.save.disabled = true; ui.again.disabled = true; ui.offset.disabled = true; ui.play.disabled = ui.seek.disabled = true;
-    await audioSetup();
-    if (!ui.preview.videoWidth || !ui.preview.duration || !Number.isFinite(ui.preview.duration)) throw new Error('Video is not ready to save yet. Play the preview once and try again.');
-    const canvas = document.createElement('canvas'); canvas.width = ui.preview.videoWidth; canvas.height = ui.preview.videoHeight;
-    if (!canvas.captureStream) throw new Error('This browser cannot export video. Try a current version of Safari on iPhone.');
-    const ctx = canvas.getContext('2d');
-    if (recordedMirrored) ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
-    canvasStream = canvas.captureStream(Math.min(60, recordedFps));
-    mix.stream.getAudioTracks().forEach(track => canvasStream.addTrack(track));
-    const candidates = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp8,opus','video/webm'];
-    const mimeType = candidates.find(t => MediaRecorder.isTypeSupported(t));
-    exportRecorder = mimeType ? new MediaRecorder(canvasStream, { mimeType }) : new MediaRecorder(canvasStream);
-    const parts = [];
-    const finished = new Promise((resolve, reject) => {
-      exportRecorder.ondataavailable = e => { if (e.data.size) parts.push(e.data); };
-      exportRecorder.onerror = e => reject(e.error || new Error('Export failed.'));
-      exportRecorder.onstop = () => resolve(new Blob(parts, { type: exportRecorder.mimeType || 'video/mp4' }));
-    });
-    ui.preview.pause(); ui.preview.currentTime = 0;
-    await new Promise(resolve => { if (ui.preview.readyState >= 2) resolve(); else ui.preview.addEventListener('loadeddata', resolve, { once: true }); });
-    ctx.drawImage(ui.preview, 0, 0, canvas.width, canvas.height);
-    exportRecorder.start(250);
-    const draw = () => { if (!exporting || ui.preview.paused) return; ctx.drawImage(ui.preview, 0, 0, canvas.width, canvas.height); drawFrame = requestAnimationFrame(draw); };
-    const ended = new Promise(resolve => ui.preview.addEventListener('ended', resolve, { once: true }));
-    await ui.preview.play(); draw(); message('Saving in real time — keep this page open until it finishes.');
-    await ended; exportRecorder.stop();
-    const blob = await finished;
+    exporting = true; ui.save.disabled = true; ui.again.disabled = true; ui.offset.disabled = true;
+    ui.preview.pause();
+    if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
+    message('Preparing export…');
+    const { exportRecording } = await import('/fast-export.js?v=10');
+    const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
-    link.href = url; link.download = `recordance-${Date.now()}.${blob.type.includes('webm') ? 'webm' : 'mp4'}`;
+    link.href = url; link.download = `recordance-${Date.now()}.mp4`;
     document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     message('Export ready. Use the browser download or share sheet to save it to Photos.');
-  } catch (e) { if (exportRecorder?.state === 'recording') exportRecorder.stop(); error(e); }
-  finally { exporting = false; cancelAnimationFrame(drawFrame); canvasStream?.getVideoTracks().forEach(t => t.stop()); ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.play.disabled = ui.seek.disabled = false; }
+  } catch (e) { error(e); }
+  finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=9').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=10').catch(console.warn);

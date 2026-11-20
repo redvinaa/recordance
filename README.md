@@ -36,18 +36,18 @@ If your computer's IP changes, generate a new certificate for the new address. A
 ## Use
 
 1. Connect your AirPods. Choose an audio file and tap **Camera**. Use the adjacent play button to preview the song from around 30%; tap it again to stop.
-2. Choose the front or back camera. The front camera can be mirrored; this setting applies to the preview and saved video. Tap **Record**, perform, and tap **Stop recording**. Recording starts the song from its beginning.
+2. Choose the front or back camera. The front camera can be mirrored; this applies to the live preview and saved video. The review uses native video controls and shows the unmirrored recording. Tap **Record**, perform, and tap **Stop recording**. Recording starts the song from its beginning.
 3. Play the preview. Open **Music timing** and drag the slider toward **Music earlier** or **Music later** while it plays; this moves the soundtrack relative to the captured video, rather than seeking to a fixed position in the song. The range is ±200 milliseconds in 10 ms steps. At a boundary where the chosen offset would require audio before the song begins or after it ends, that part will be silent.
-4. Tap **Save video**. The app plays through the take to render the export in real time. Keep the screen awake and this page in the foreground. When finished, use the browser's download/share controls to save the file to Photos. The generated format depends on browser support.
+4. Tap **Save video**. The app processes the take locally without playing it through. Keep the page open while it saves. Fast export requires Safari/iOS 26 or later with supported codecs. When finished, use the browser's download/share controls to save the file to Photos. The generated format depends on browser support.
 5. Tap **Record again** to make another take with the same song and timing setting.
 
 For a quick sync check, record yourself clapping or making a visible gesture on a beat, then adjust while reviewing. Bluetooth latency, browser scheduling and long recordings can affect alignment; test short clips on your hardware first. The preview adjustment is approximate and the recording's starting alignment is measured in the browser, not calibrated against the actual AirPods output. This prototype does not guarantee frame-accurate sync, and the export may differ from preview due to iOS browser media limitations.
 
 ## Limitations
 
-- Tested programmatically only; camera, Bluetooth latency, real-time export, background behavior, and saving to Photos require testing on actual iPhone hardware.
+- Tested programmatically only; camera, Bluetooth latency, fast export, background behavior, and saving to Photos require testing on actual iPhone hardware.
 - iOS Safari support for `MediaRecorder`, canvas capture and simultaneous audio routing varies by version. Errors are shown in the app. There is no native-app fallback yet.
-- Export takes the length of the recording and can consume substantial memory and battery. Do not lock the screen, switch apps, or seek/pause during export.
+- Export can consume substantial memory and battery, especially for long or high-resolution recordings. Keep the page open during export.
 - Files and takes are not persisted. Imported songs are not included in the offline cache. The slider is reset when the page reloads.
 - Recordings contain the song only, without microphone sound. The song starts at its beginning; choosing a starting point, persistent projects, and automatic Bluetooth latency measurement are not implemented.
 
@@ -57,4 +57,6 @@ On the Jetson, the static files are in `~/recordance/public` and the `recordance
 
 To update an existing deployment from a local checkout, copy `public/` to `~/recordance/` on the Jetson; the container mounts that directory read-only, so it serves updated files without rebuilding. The repository's Node server is used for local development, whereas the Jetson container uses an unprivileged Nginx server with a read-only filesystem.
 
-Camera quality controls request the selected resolution and frame rate; the browser may choose different settings, which are shown when available. Export uses the recorded dimensions and requests up to the captured frame rate, but browser and device performance may reduce the final frame rate.
+Camera quality controls request the selected resolution and frame rate; the browser may choose different settings, which are shown when available. Export preserves the recorded dimensions and frame rate where supported. Mirroring requires video re-encoding.
+
+The browser exporter is bundled from Mediabunny. Run `npm install` and `npm run build` after changing `src/fast-export.js`.
