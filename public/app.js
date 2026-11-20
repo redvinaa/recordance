@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const ui = Object.fromEntries(['song','songName','demo','camera','cameraLabel','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','levelToggle','level','levelBar','countdown','record','stop','stopLabel','setup','review','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
+const ui = Object.fromEntries(['song','songName','demo','camera','cameraLabel','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','setup','review','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
 let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false;
 let audioContext, musicNode;
 let facing = 'user', recordedMirrored = false;
@@ -79,7 +79,7 @@ async function startCamera() {
     ui.cameraLabel.textContent = 'Restart'; ready(); message('Camera ready.');
   } catch (e) { stream = null; ready(); error(e); }
 }
-ui.camera.onclick = startCamera;
+ui.camera.onclick = async () => { await enableLevel(); await startCamera(); };
 async function setFacing(next) {
   if (next === facing) return;
   facing = next; updateCameraControls();
@@ -105,18 +105,16 @@ function onOrientation(event) {
   ui.level.classList.toggle('is-level', Math.abs(angle) < 2);
   ui.level.setAttribute('aria-label', `Camera level: ${Math.round(angle)} degrees`);
 }
-ui.levelToggle.onclick = async () => {
-  if (levelEnabled) {
-    levelEnabled = false; window.removeEventListener('deviceorientation', onOrientation);
-    ui.level.hidden = true; ui.levelToggle.setAttribute('aria-pressed', 'false'); return;
-  }
+async function enableLevel() {
+  if (levelEnabled || !window.DeviceOrientationEvent) return;
   try {
-    if (!window.DeviceOrientationEvent) throw new Error('Camera level is not supported on this device.');
-    if (typeof DeviceOrientationEvent.requestPermission === 'function' && await DeviceOrientationEvent.requestPermission() !== 'granted') throw new Error('Motion access was not granted.');
-    levelEnabled = true; ui.levelToggle.setAttribute('aria-pressed', 'true');
-    window.addEventListener('deviceorientation', onOrientation); message('');
-  } catch (e) { error(e); }
-};
+    if (typeof DeviceOrientationEvent.requestPermission === 'function' && await DeviceOrientationEvent.requestPermission() !== 'granted') return;
+    levelEnabled = true;
+    window.addEventListener('deviceorientation', onOrientation);
+  } catch {
+    // Motion is optional; camera and recording still work if permission is denied.
+  }
+}
 delayButtons.forEach(button => button.onclick = () => {
   startDelay = Number(button.dataset.delay);
   delayButtons.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
@@ -198,7 +196,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=11');
+    const { exportRecording } = await import('/fast-export.js?v=12');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -210,4 +208,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=11').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=12').catch(console.warn);
