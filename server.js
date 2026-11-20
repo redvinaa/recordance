@@ -9,8 +9,9 @@ const handler = async (req, res) => {
   const path = normalize(decodeURIComponent(new URL(req.url, 'http://localhost').pathname)).replace(/^([/\\])+/, '');
   if (path.startsWith('..')) { res.writeHead(403).end(); return; }
   try {
-    const data = await readFile(join(root, path || 'index.html'));
-    res.writeHead(200, { 'Content-Type': types[extname(path)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    const file = path || 'index.html';
+    const data = await readFile(join(root, file));
+    res.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(data);
   } catch { res.writeHead(404).end('Not found'); }
 };
