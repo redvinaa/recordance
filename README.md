@@ -60,3 +60,5 @@ To update an existing deployment from a local checkout, copy `public/` to `~/rec
 Camera quality controls request the selected resolution and frame rate; the browser may choose different settings, which are shown when available. Export preserves the recorded dimensions and frame rate where supported. Mirroring requires video re-encoding.
 
 The browser exporter is bundled from Mediabunny. Run `npm install` and `npm run build` after changing `src/fast-export.js`.
+
+Use the camera icon to take a photo from the live camera preview. The selected delay and countdown beeps apply to both photos and videos. A photo can be replaced by taking another; the photo button is disabled while reviewing a video. Photos are captured at the video preview resolution.

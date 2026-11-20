@@ -1,8 +1,8 @@
 const $ = id => document.getElementById(id);
-const ui = Object.fromEntries(['song','songName','demo','camera','cameraLabel','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
+const ui = Object.fromEntries(['song','songName','demo','camera','cameraLabel','cameraIcon','photo','photoPreview','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
 let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false;
 let audioContext, musicNode;
-let facing = 'environment', recordedMirrored = false;
+let facing = 'environment', recordedMirrored = false, photoURL, inReview = false;
 let startDelay = 0, startPending = false, countdownTimer, startGeneration = 0, levelEnabled = false;
 const delayButtons = [...document.querySelectorAll('.delay-option')];
 const music = new Audio();
@@ -10,7 +10,7 @@ music.preload = 'auto';
 const message = text => { ui.status.textContent = text; };
 const offset = () => Number(ui.offset.value) / 1000;
 const format = () => { const n = Number(ui.offset.value); ui.offsetValue.textContent = `${n > 0 ? '+' : ''}${n} ms`; };
-function ready() { ui.record.disabled = !stream || !songURL || startPending || recorder?.state === 'recording'; }
+function ready() { ui.record.disabled = !stream || !songURL || startPending || recorder?.state === 'recording'; ui.photo.disabled = !stream || startPending || inReview || recorder?.state === 'recording'; }
 function error(e) { console.error(e); message(e?.message || String(e)); }
 async function audioSetup() {
   if (!audioContext) {
@@ -64,8 +64,13 @@ function updateCameraControls() {
   ui.mirrorRow.hidden = facing !== 'user';
   ui.live.classList.toggle('mirrored', facing === 'user' && ui.mirror.checked);
 }
+function clearPhoto() {
+  ui.photoPreview.hidden = true; ui.photoPreview.removeAttribute('src'); ui.liveFrame.classList.remove('has-photo');
+  if (photoURL) { URL.revokeObjectURL(photoURL); photoURL = null; }
+}
 async function startCamera() {
   try {
+    clearPhoto();
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access needs HTTPS or localhost. See the README for iPhone setup.');
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null; ui.live.srcObject = null; ui.liveFrame.classList.add('empty'); ready();
@@ -76,7 +81,7 @@ async function startCamera() {
     const settings = stream.getVideoTracks()[0].getSettings();
     ui.cameraActual.textContent = [settings.width && settings.height ? `${settings.width}×${settings.height}` : '', settings.frameRate ? `${Math.round(settings.frameRate)} fps` : ''].filter(Boolean).join(' · ');
     ui.live.srcObject = stream; await ui.live.play(); ui.liveFrame.classList.remove('empty');
-    ui.cameraLabel.textContent = 'Restart'; ready(); message('');
+    ui.cameraLabel.textContent = 'Reset'; ui.cameraIcon.setAttribute('href', '#i-again'); ready(); message('');
   } catch (e) { stream = null; ready(); error(e); }
 }
 ui.camera.onclick = async () => { await enableLevel(); await startCamera(); };
@@ -120,7 +125,7 @@ delayButtons.forEach(button => button.onclick = () => {
   delayButtons.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
 });
 function lockRecordingControls(locked) {
-  ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = ui.song.disabled = ui.offset.disabled = locked;
+  ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = ui.song.disabled = ui.offset.disabled = ui.photo.disabled = locked;
   delayButtons.forEach(button => { button.disabled = locked; });
   ui.demo.disabled = locked || !songURL;
 }
@@ -130,13 +135,38 @@ function resetRecordingControls() {
   lockRecordingControls(false); ready();
 }
 
+function beep() {
+  if (!audioContext || audioContext.state !== 'running') return;
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  const now = audioContext.currentTime;
+  oscillator.frequency.value = 880;
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+  oscillator.connect(gain); gain.connect(audioContext.destination);
+  oscillator.start(now); oscillator.stop(now + 0.1);
+}
+function runCountdown(begin, generation) {
+  if (!startDelay) { void begin(); return; }
+  const end = performance.now() + startDelay * 1000;
+  let lastRemaining = startDelay;
+  ui.countdown.hidden = false; ui.countdown.textContent = String(lastRemaining); message(''); beep();
+  countdownTimer = setInterval(() => {
+    if (generation !== startGeneration) return;
+    const remaining = Math.ceil((end - performance.now()) / 1000);
+    if (remaining <= 0) void begin();
+    else if (remaining !== lastRemaining) { lastRemaining = remaining; ui.countdown.textContent = String(remaining); beep(); }
+  }, 100);
+}
+
 updateCameraControls();
 ui.record.onclick = async () => {
   if (startPending || !stream || !songFile) return;
   const generation = ++startGeneration;
   try {
     if (!window.MediaRecorder) throw new Error('This browser does not support video recording.');
-    startPending = true; lockRecordingControls(true); ready();
+    clearPhoto(); startPending = true; lockRecordingControls(true); ready();
     ui.record.hidden = true; ui.stop.hidden = false; ui.stopLabel.textContent = 'Cancel';
     stopDemo(); await audioSetup();
     if (generation !== startGeneration) return;
@@ -160,7 +190,7 @@ ui.record.onclick = async () => {
           videoBlob = new Blob(chunks, { type: recorder.mimeType || 'video/mp4' });
           videoURL = URL.createObjectURL(videoBlob);
           ui.preview.src = videoURL; ui.live.hidden = true; ui.preview.hidden = false;
-          ui.liveFrame.classList.add('reviewing');
+          inReview = true; ui.liveFrame.classList.add('reviewing');
           ui.camera.hidden = true; ui.record.hidden = true; ui.save.hidden = false; ui.again.hidden = false;
           lockRecordingControls(true); ui.offset.disabled = false; message('');
         };
@@ -172,15 +202,39 @@ ui.record.onclick = async () => {
         error(e);
       }
     };
-    if (!startDelay) { await begin(); return; }
-    const end = performance.now() + startDelay * 1000;
-    ui.countdown.hidden = false; ui.countdown.textContent = String(startDelay); message('');
-    countdownTimer = setInterval(() => {
-      const remaining = Math.ceil((end - performance.now()) / 1000);
-      if (remaining <= 0) void begin(); else ui.countdown.textContent = String(remaining);
-    }, 100);
+    runCountdown(begin, generation);
   } catch (e) { if (generation === startGeneration) { resetRecordingControls(); error(e); } }
 };
+ui.photo.onclick = async () => {
+  if (!stream || startPending || inReview || recorder?.state === 'recording') return;
+  const generation = ++startGeneration;
+  try {
+    clearPhoto(); startPending = true; lockRecordingControls(true); ready();
+    ui.record.hidden = true; ui.stop.hidden = false; ui.stopLabel.textContent = 'Cancel';
+    if (startDelay) await audioSetup();
+    if (generation !== startGeneration) return;
+    const capture = async () => {
+      if (generation !== startGeneration) return;
+      clearInterval(countdownTimer); countdownTimer = null; ui.countdown.hidden = true;
+      try {
+        const width = ui.live.videoWidth, height = ui.live.videoHeight;
+        if (!width || !height) throw new Error('The camera is not ready yet.');
+        const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (facing === 'user' && ui.mirror.checked) ctx.setTransform(-1, 0, 0, 1, width, 0);
+        ctx.drawImage(ui.live, 0, 0, width, height);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+        if (generation !== startGeneration) return;
+        if (!blob) throw new Error('Could not capture a photo.');
+        photoURL = URL.createObjectURL(blob); ui.photoPreview.src = photoURL;
+        ui.photoPreview.hidden = false; ui.liveFrame.classList.add('has-photo');
+        resetRecordingControls(); message('');
+      } catch (e) { if (generation === startGeneration) { resetRecordingControls(); error(e); } }
+    };
+    runCountdown(capture, generation);
+  } catch (e) { if (generation === startGeneration) { resetRecordingControls(); error(e); } }
+};
+
 ui.stop.onclick = () => {
   if (startPending) { ++startGeneration; music.pause(); music.muted = false; resetRecordingControls(); message('Countdown cancelled.'); }
   else if (recorder?.state === 'recording') recorder.stop();
@@ -190,7 +244,7 @@ ui.preview.onpause = stopSync;
 ui.preview.onseeked = () => { if (!ui.preview.paused) sync(); };
 ui.preview.onended = stopSync;
 ui.offset.oninput = () => { format(); if (!ui.preview.paused) sync(); };
-ui.again.onclick = () => { stopSync(); ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load(); ui.preview.hidden = true; ui.live.hidden = false; ui.liveFrame.classList.remove('reviewing'); ui.camera.hidden = false; ui.record.hidden = false; ui.save.hidden = true; ui.again.hidden = true; lockRecordingControls(false); ready(); message(''); };
+ui.again.onclick = () => { inReview = false; stopSync(); ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load(); ui.preview.hidden = true; ui.live.hidden = false; ui.liveFrame.classList.remove('reviewing'); ui.camera.hidden = false; ui.record.hidden = false; ui.save.hidden = true; ui.again.hidden = true; lockRecordingControls(false); ready(); message(''); };
 ui.save.onclick = async () => {
   if (exporting) return;
   try {
@@ -198,7 +252,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=16');
+    const { exportRecording } = await import('/fast-export.js?v=17');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -210,4 +264,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=16').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=17').catch(console.warn);
