@@ -32,3 +32,5 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}main{height:100dv
 
 /* Match the two slider tracks and reserve room for offsets below one hour. */
 .start-offset-row label,.timing-row label{flex:0 0 82px;white-space:nowrap}.start-offset-row output,.timing-row output{flex:0 0 62px;width:62px;white-space:nowrap}
+
+.timing-row .timing-reset{flex:0 0 62px;width:62px;min-height:35px;padding:0;border:0;background:transparent;color:#6551b5;text-align:right;white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}

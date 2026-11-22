@@ -174,6 +174,7 @@ delayButtons.forEach(button => button.onclick = () => {
 function lockRecordingControls(locked) {
   ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = ui.song.disabled = ui.offset.disabled = ui.photo.disabled = locked;
   ui.songStartOffset.disabled = locked || !songReady;
+  ui.offsetValue.disabled = locked;
   delayButtons.forEach(button => { button.disabled = locked; });
   ui.demo.disabled = locked || !songReady;
 }
@@ -244,7 +245,7 @@ ui.record.onclick = async () => {
           ui.preview.src = videoURL; ui.live.hidden = true; ui.preview.hidden = false;
           inReview = true; ui.liveFrame.classList.add('reviewing');
           ui.camera.hidden = true; ui.record.hidden = true; ui.save.hidden = false; ui.again.hidden = false;
-          lockRecordingControls(true); ui.offset.disabled = false; message('');
+          lockRecordingControls(true); ui.offset.disabled = false; ui.offsetValue.disabled = false; message('');
         };
         recorder.start(250); const recordingStart = performance.now();
         startPending = false; ui.stopLabel.textContent = 'Stop'; message('');
@@ -299,15 +300,16 @@ ui.preview.onpause = stopSync;
 ui.preview.onseeked = () => { if (!ui.preview.paused) sync(); };
 ui.preview.onended = stopSync;
 ui.offset.oninput = () => { format(); if (!ui.preview.paused) sync(); };
+ui.offsetValue.onclick = () => { if (ui.offset.disabled) return; ui.offset.value = '0'; ui.offset.oninput(); };
 ui.again.onclick = () => { inReview = false; stopSync(); ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load(); ui.preview.hidden = true; ui.live.hidden = false; ui.liveFrame.classList.remove('reviewing'); ui.camera.hidden = false; ui.record.hidden = false; ui.save.hidden = true; ui.again.hidden = true; lockRecordingControls(false); ready(); message(''); };
 ui.save.onclick = async () => {
   if (exporting) return;
   try {
-    exporting = true; ui.save.disabled = true; ui.again.disabled = true; ui.offset.disabled = true;
+    exporting = true; ui.save.disabled = true; ui.again.disabled = true; ui.offset.disabled = true; ui.offsetValue.disabled = true;
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=21');
+    const { exportRecording } = await import('/fast-export.js?v=22');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -316,7 +318,7 @@ ui.save.onclick = async () => {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     message('Export ready. Use the browser download or share sheet to save it to Photos.');
   } catch (e) { error(e); }
-  finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; }
+  finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.offsetValue.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=21').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=22').catch(console.warn);
