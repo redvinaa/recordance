@@ -1,8 +1,8 @@
 # Recordance
 
-A small, local-first iPhone camera app for recording while listening to your own audio through headphones. Preview the take, move the music earlier or later **relative to the recorded performance**, and export a video with that adjustment. Changing the slider while the preview plays changes the alignment immediately. The last slider position stays in place for subsequent takes while the page is open.
+A small, local-first iPhone camera app for recording while listening to your own audio through headphones. Preview the take, move the music earlier or later **relative to the recorded performance**, and export a video with that adjustment. Changing the slider while the preview plays changes the alignment immediately. Camera settings, countdown delay, music timing, the selected song and each song’s start offset are remembered on the device.
 
-This is an early prototype. It has not yet been validated on every iPhone or iOS version. Audio, video and exporting remain on the device; the server only serves the app files. Song files must be accessible through the iPhone's Files picker; streaming-service offline downloads are generally not importable. A take and its song are held in memory, so leaving/reloading the page loses the take.
+This is an early prototype. It has not yet been validated on every iPhone or iOS version. Audio, video and exporting remain on the device; the server only serves the app files. Song files must be accessible through the iPhone's Files picker; streaming-service offline downloads are generally not importable. The current take is held in memory, so leaving or reloading the page loses it. The selected song is stored in the browser on the device.
 
 ## Run on your computer
 
@@ -48,8 +48,8 @@ For a quick sync check, record yourself clapping or making a visible gesture on 
 - Tested programmatically only; camera, Bluetooth latency, fast export, background behavior, and saving to Photos require testing on actual iPhone hardware.
 - iOS Safari support for `MediaRecorder`, canvas capture and simultaneous audio routing varies by version. Errors are shown in the app. There is no native-app fallback yet.
 - Export can consume substantial memory and battery, especially for long or high-resolution recordings. Keep the page open during export.
-- Files and takes are not persisted. Imported songs are not included in the offline cache. The slider is reset when the page reloads.
-- Recordings contain the song only, without microphone sound. Persistent projects and automatic Bluetooth latency measurement are not implemented.
+- Takes are not persisted. Browser storage can be cleared or evicted by iOS, in which case the song must be selected again. Saved songs are not included in the offline app cache.
+- Recordings contain the song only, without microphone sound. Persistent takes and automatic Bluetooth latency measurement are not implemented.
 
 ## Jetson deployment
 

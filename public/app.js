@@ -1,16 +1,89 @@
 const $ = id => document.getElementById(id);
 const ui = Object.fromEntries(['song','songName','songStartOffset','startOffsetValue','startTicks','demo','camera','cameraLabel','cameraIcon','photo','photoIcon','photoPreview','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
 let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false;
-let audioContext, musicNode, previewWaiting = false, musicPlayPending = false, previewGeneration = 0, syncNeedsAlignment = true;
+let audioContext, musicNode, previewWaiting = false, musicPlayPending = false, previewGeneration = 0, syncNeedsAlignment = true, syncVersion = 0, previewWatchdog;
 let facing = 'environment', recordedMirrored = false, recordedSongOffset = 0, photoURL, inReview = false, songReady = false;
+let songIdentityReady = true, songId = null, songSelectionVersion = 0, pendingSongOffset = null;
 let startDelay = 0, startPending = false, countdownTimer, startGeneration = 0, levelEnabled = false;
 const delayButtons = [...document.querySelectorAll('.delay-option')];
+const SETTINGS_KEY = 'recordance.settings.v1';
+let settings = { positions: {}, selectedSong: null };
+try {
+  const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  if (saved && typeof saved === 'object') settings = { ...settings, ...saved, positions: saved.positions && typeof saved.positions === 'object' ? saved.positions : {} };
+} catch { /* Local storage may be unavailable in private browsing. */ }
+function saveSettings() {
+  try {
+    Object.assign(settings, { facing, mirror: ui.mirror.checked, resolution: ui.resolution.value, fps: ui.fps.value, startDelay, timing: Number(ui.offset.value) });
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch { /* Settings remain usable for this session. */ }
+}
+function openSongDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('recordance', 1);
+    request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains('songs')) request.result.createObjectStore('songs'); };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error('Song storage is unavailable.'));
+  });
+}
+async function songDatabase(mode, action) {
+  const db = await openSongDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('songs', mode), request = action(tx.objectStore('songs'));
+    tx.oncomplete = () => { db.close(); resolve(request.result); };
+    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error || request.error || new Error('Song storage failed.')); };
+  });
+}
+async function fingerprint(file) {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function applyPendingSongOffset() {
+  if (!songReady || !songIdentityReady || pendingSongOffset == null) return;
+  const value = Math.max(0, Math.min(Number(ui.songStartOffset.max), Number(pendingSongOffset) || 0));
+  ui.songStartOffset.value = String(value);
+  ui.startOffsetValue.textContent = formatSongTime(value);
+  pendingSongOffset = null;
+}
+function updateSongAvailability() {
+  const blocked = !songReady || !songIdentityReady || startPending || inReview || recorder?.state === 'recording';
+  ui.songStartOffset.disabled = blocked; ui.demo.disabled = blocked;
+  ready();
+}
+async function rememberSong(file, version) {
+  try {
+    const id = await fingerprint(file);
+    if (version !== songSelectionVersion) return;
+    const previous = await songDatabase('readonly', store => store.get(id));
+    if (version !== songSelectionVersion) return;
+    if (!previous) await songDatabase('readwrite', store => store.put({ blob: file, name: file.name, type: file.type, lastModified: file.lastModified }, id));
+    if (version !== songSelectionVersion) return;
+    songId = id; settings.selectedSong = id; pendingSongOffset = settings.positions[id] ?? 0;
+    songIdentityReady = true; applyPendingSongOffset(); updateSongAvailability(); saveSettings();
+  } catch (e) {
+    if (version !== songSelectionVersion) return;
+    songIdentityReady = true; updateSongAvailability();
+    console.warn('Could not retain song:', e); message('This song could not be remembered on this device.');
+  }
+}
+async function restoreSong() {
+  const id = settings.selectedSong, version = songSelectionVersion;
+  if (!id) return;
+  try {
+    const saved = await songDatabase('readonly', store => store.get(id));
+    if (version !== songSelectionVersion) return;
+    if (!saved?.blob) { settings.selectedSong = null; saveSettings(); return; }
+    const file = new File([saved.blob], saved.name || 'Saved song', { type: saved.type || saved.blob.type, lastModified: saved.lastModified || 0 });
+    selectSong(file, { id, startOffset: settings.positions[id] ?? 0 });
+  } catch (e) { console.warn('Could not restore song:', e); message('Could not restore the saved song on this device.'); }
+}
 const music = new Audio();
 music.preload = 'auto';
 const message = text => { ui.status.textContent = text; };
 const offset = () => Number(ui.offset.value) / 1000;
 const format = () => { const n = Number(ui.offset.value); ui.offsetValue.textContent = `${n > 0 ? '+' : ''}${n} ms`; };
-function ready() { ui.record.disabled = !stream || !songReady || startPending || recorder?.state === 'recording'; ui.photo.disabled = !stream || startPending || inReview || recorder?.state === 'recording'; }
+function ready() { ui.record.disabled = !stream || !songReady || !songIdentityReady || startPending || recorder?.state === 'recording'; ui.photo.disabled = !stream || startPending || inReview || recorder?.state === 'recording'; }
 function error(e) { console.error(e); message(e?.message || String(e)); }
 async function audioSetup() {
   if (!audioContext) {
@@ -21,7 +94,7 @@ async function audioSetup() {
   if (audioContext.state !== 'running') await audioContext.resume();
 }
 function stopSync() {
-  cancelAnimationFrame(animation); syncNeedsAlignment = true;
+  ++syncVersion; cancelAnimationFrame(animation); syncNeedsAlignment = true;
   music.pause();
 }
 // Align only on play, seek, buffering recovery or a timing adjustment.
@@ -38,13 +111,40 @@ function sync() {
   } else {
     if (Math.abs(music.currentTime - target) > 0.03) music.currentTime = target;
     music.playbackRate = ui.preview.playbackRate || 1;
+    if (music.paused && musicPlayPending) { syncNeedsAlignment = true; return; }
     syncNeedsAlignment = false;
-    if (music.paused && !musicPlayPending) {
+    if (music.paused) {
+      const version = ++syncVersion;
       musicPlayPending = true;
-      Promise.resolve(music.play()).catch(e => { if (e?.name !== 'AbortError') error(e); }).finally(() => { musicPlayPending = false; });
+      Promise.resolve(music.play()).then(() => {
+        if (version !== syncVersion) {
+          if (!ui.preview.paused && !ui.preview.seeking && !previewWaiting) syncNeedsAlignment = true;
+          else music.pause();
+        }
+      }).catch(e => { if (e?.name !== 'AbortError') error(e); }).finally(() => {
+        musicPlayPending = false;
+        if (syncNeedsAlignment && !ui.preview.paused && !ui.preview.seeking && !previewWaiting) sync();
+      });
     }
   }
 }
+
+// A small seek can recover an iOS preview whose playback clock has stopped.
+function startPreviewWatchdog() {
+  if (previewWatchdog) return;
+  let position = ui.preview.currentTime, lastAdvance = performance.now(), lastRecovery = 0;
+  previewWatchdog = setInterval(() => {
+    const video = ui.preview, now = performance.now(), current = video.currentTime;
+    if (document.visibilityState === 'hidden' || video.paused || video.seeking) {
+      position = current; lastAdvance = now; return;
+    }
+    if (Math.abs(current - position) > 0.01) { position = current; lastAdvance = now; return; }
+    if (now - lastAdvance < 4000 || now - lastRecovery < 5000 || !Number.isFinite(video.duration) || current >= video.duration - 0.1) return;
+    lastAdvance = lastRecovery = now; stopSync();
+    video.currentTime = Math.min(current + 0.05, video.duration - 0.01);
+  }, 750);
+}
+function stopPreviewWatchdog() { clearInterval(previewWatchdog); previewWatchdog = null; }
 
 let demoPlaying = false;
 function stopDemo() { if (!demoPlaying) return; music.pause(); music.currentTime = Number(ui.songStartOffset.value); demoPlaying = false; ui.demo.classList.remove('is-playing'); ui.demo.setAttribute('aria-label', 'Preview song'); }
@@ -69,10 +169,7 @@ function updateSongDuration() {
   if (!songFile || !Number.isFinite(duration) || duration <= 0) return;
   songReady = true;
   ui.songStartOffset.max = String(Math.min(duration, 3599));
-  ui.songStartOffset.disabled = startPending || inReview || recorder?.state === 'recording';
-  ui.demo.disabled = ui.songStartOffset.disabled;
-  renderStartTicks();
-  ready();
+  applyPendingSongOffset(); renderStartTicks(); updateSongAvailability();
 }
 function renderStartTicks() {
   ui.startTicks.replaceChildren();
@@ -100,16 +197,21 @@ music.addEventListener('error', () => { if (songFile) { songReady = false; ui.so
 ui.songStartOffset.oninput = () => {
   ui.startOffsetValue.textContent = formatSongTime(Number(ui.songStartOffset.value));
   if (demoPlaying) music.currentTime = Number(ui.songStartOffset.value);
+  if (songId) { settings.positions[songId] = Number(ui.songStartOffset.value); saveSettings(); }
 };
-ui.song.onchange = () => {
+function selectSong(file, restored = null) {
   stopDemo();
-  const file = ui.song.files[0]; if (!file) return;
+  const version = ++songSelectionVersion;
   if (songURL) URL.revokeObjectURL(songURL);
-  songReady = false; ui.songStartOffset.disabled = true; ui.demo.disabled = true;
+  songReady = false; songIdentityReady = Boolean(restored); songId = restored?.id ?? null;
+  pendingSongOffset = restored?.startOffset ?? null;
+  ui.songStartOffset.disabled = true; ui.demo.disabled = true;
   ui.songStartOffset.value = '0'; ui.songStartOffset.max = '0'; ui.startOffsetValue.textContent = '0s'; ui.startTicks.replaceChildren();
   songFile = file; songURL = URL.createObjectURL(file); music.src = songURL;
   ui.songName.textContent = file.name; ready(); message('');
-};
+  if (!restored) { settings.selectedSong = null; saveSettings(); void rememberSong(file, version); }
+}
+ui.song.onchange = () => { const file = ui.song.files[0]; if (file) { ui.song.value = ''; selectSong(file); } };
 function updateCameraControls() {
   ui.front.setAttribute('aria-pressed', String(facing === 'user'));
   ui.back.setAttribute('aria-pressed', String(facing === 'environment'));
@@ -140,13 +242,13 @@ async function startCamera() {
 ui.camera.onclick = async () => { await enableLevel(); await startCamera(); };
 async function setFacing(next) {
   if (next === facing) return;
-  facing = next; updateCameraControls();
+  facing = next; updateCameraControls(); saveSettings();
   if (stream) await startCamera();
 }
 ui.front.onclick = () => setFacing('user');
 ui.back.onclick = () => setFacing('environment');
-ui.mirror.onchange = updateCameraControls;
-ui.resolution.onchange = ui.fps.onchange = () => { if (stream) startCamera(); };
+ui.mirror.onchange = () => { updateCameraControls(); saveSettings(); };
+ui.resolution.onchange = ui.fps.onchange = () => { saveSettings(); if (stream) startCamera(); };
 
 function onOrientation(event) {
   if (event.beta == null || event.gamma == null) return;
@@ -174,15 +276,15 @@ async function enableLevel() {
   }
 }
 delayButtons.forEach(button => button.onclick = () => {
-  startDelay = Number(button.dataset.delay);
+  startDelay = Number(button.dataset.delay); saveSettings();
   delayButtons.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
 });
 function lockRecordingControls(locked) {
   ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = ui.song.disabled = ui.offset.disabled = ui.photo.disabled = locked;
-  ui.songStartOffset.disabled = locked || !songReady;
+  ui.songStartOffset.disabled = locked || !songReady || !songIdentityReady;
   ui.offsetValue.disabled = locked;
   delayButtons.forEach(button => { button.disabled = locked; });
-  ui.demo.disabled = locked || !songReady;
+  ui.demo.disabled = locked || !songReady || !songIdentityReady;
 }
 function resetRecordingControls() {
   startPending = false; clearInterval(countdownTimer); countdownTimer = null;
@@ -215,9 +317,17 @@ function runCountdown(begin, generation) {
   }, 100);
 }
 
+if (settings.facing === 'user' || settings.facing === 'environment') facing = settings.facing;
+if (typeof settings.mirror === 'boolean') ui.mirror.checked = settings.mirror;
+if (['auto', '720', '1080', '2160'].includes(settings.resolution)) ui.resolution.value = settings.resolution;
+if (['auto', '30', '60'].includes(settings.fps)) ui.fps.value = settings.fps;
+if ([0, 3, 5].includes(settings.startDelay)) startDelay = settings.startDelay;
+if (Number.isFinite(settings.timing)) ui.offset.value = String(Math.min(200, Math.max(-200, settings.timing)));
+delayButtons.forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.delay) === startDelay)));
 updateCameraControls();
+void restoreSong();
 ui.record.onclick = async () => {
-  if (startPending || !stream || !songReady) return;
+  if (startPending || !stream || !songReady || !songIdentityReady) return;
   const generation = ++startGeneration;
   try {
     if (!window.MediaRecorder) throw new Error('This browser does not support video recording.');
@@ -255,7 +365,7 @@ ui.record.onclick = async () => {
           lockRecordingControls(true); ui.offset.disabled = false; ui.offsetValue.disabled = false;
           ui.save.disabled = ui.again.disabled = true; message('Preparing preview…');
           try {
-            const { preparePreview } = await import('/fast-export.js?v=24');
+            const { preparePreview } = await import('/fast-export.js?v=25');
             videoBlob = await preparePreview(original);
           } catch (e) {
             console.warn('Could not remux preview; using original recording.', e);
@@ -312,7 +422,7 @@ ui.stop.onclick = () => {
   if (startPending) { ++startGeneration; music.pause(); music.muted = false; resetRecordingControls(); message('Countdown cancelled.'); }
   else if (recorder?.state === 'recording') recorder.stop();
 };
-ui.preview.onplay = async () => { try { await audioSetup(); } catch (e) { error(e); } };
+ui.preview.onplay = async () => { startPreviewWatchdog(); try { await audioSetup(); } catch (e) { error(e); } };
 ui.preview.onplaying = async () => {
   const generation = ++previewGeneration;
   try {
@@ -329,9 +439,9 @@ ui.preview.onseeked = () => {
   }
 };
 ui.preview.onratechange = () => { music.playbackRate = ui.preview.playbackRate || 1; };
-ui.preview.onpause = () => { ++previewGeneration; previewWaiting = false; stopSync(); };
-ui.preview.onended = stopSync;
-ui.offset.oninput = () => { format(); if (!ui.preview.paused) sync(); };
+ui.preview.onpause = () => { ++previewGeneration; previewWaiting = false; stopPreviewWatchdog(); stopSync(); };
+ui.preview.onended = () => { stopPreviewWatchdog(); stopSync(); };
+ui.offset.oninput = () => { format(); saveSettings(); if (!ui.preview.paused) sync(); };
 ui.offsetValue.onclick = () => { if (ui.offset.disabled) return; ui.offset.value = '0'; ui.offset.oninput(); };
 ui.again.onclick = async () => {
   inReview = false; stopSync(); ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load();
@@ -347,7 +457,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=24');
+    const { exportRecording } = await import('/fast-export.js?v=25');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -359,4 +469,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.offsetValue.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=24').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=25').catch(console.warn);
