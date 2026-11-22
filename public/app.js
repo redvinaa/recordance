@@ -1,8 +1,8 @@
 const $ = id => document.getElementById(id);
-const ui = Object.fromEntries(['song','songName','demo','camera','cameraLabel','cameraIcon','photo','photoIcon','photoPreview','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
+const ui = Object.fromEntries(['song','songName','songStartOffset','startOffsetValue','startTicks','demo','camera','cameraLabel','cameraIcon','photo','photoIcon','photoPreview','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
 let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false;
 let audioContext, musicNode;
-let facing = 'environment', recordedMirrored = false, photoURL, inReview = false;
+let facing = 'environment', recordedMirrored = false, recordedSongOffset = 0, photoURL, inReview = false, songReady = false;
 let startDelay = 0, startPending = false, countdownTimer, startGeneration = 0, levelEnabled = false;
 const delayButtons = [...document.querySelectorAll('.delay-option')];
 const music = new Audio();
@@ -10,7 +10,7 @@ music.preload = 'auto';
 const message = text => { ui.status.textContent = text; };
 const offset = () => Number(ui.offset.value) / 1000;
 const format = () => { const n = Number(ui.offset.value); ui.offsetValue.textContent = `${n > 0 ? '+' : ''}${n} ms`; };
-function ready() { ui.record.disabled = !stream || !songURL || startPending || recorder?.state === 'recording'; ui.photo.disabled = !stream || startPending || inReview || recorder?.state === 'recording'; }
+function ready() { ui.record.disabled = !stream || !songReady || startPending || recorder?.state === 'recording'; ui.photo.disabled = !stream || startPending || inReview || recorder?.state === 'recording'; }
 function error(e) { console.error(e); message(e?.message || String(e)); }
 async function audioSetup() {
   if (!audioContext) {
@@ -26,8 +26,9 @@ function stopSync() { cancelAnimationFrame(animation); music.pause(); }
 function sync() {
   cancelAnimationFrame(animation);
   if (ui.preview.paused) return;
-  const target = ui.preview.currentTime - songStart - offset();
-  if (target < 0) {
+  const elapsed = ui.preview.currentTime - songStart - offset();
+  const target = recordedSongOffset + elapsed;
+  if (elapsed < 0) {
     music.pause();
     // Wait for the video to reach the start of the song. Do not repeatedly
     // seek during normal playback: Safari may stall on frequent seeks.
@@ -40,23 +41,54 @@ function sync() {
   }
 }
 let demoPlaying = false;
-function stopDemo() { if (!demoPlaying) return; music.pause(); music.currentTime = 0; demoPlaying = false; ui.demo.classList.remove('is-playing'); ui.demo.setAttribute('aria-label', 'Preview song'); }
+function stopDemo() { if (!demoPlaying) return; music.pause(); music.currentTime = Number(ui.songStartOffset.value); demoPlaying = false; ui.demo.classList.remove('is-playing'); ui.demo.setAttribute('aria-label', 'Preview song'); }
 ui.demo.onclick = async () => {
   if (demoPlaying) { stopDemo(); return; }
   try {
     if (music.readyState < 1) await new Promise((resolve, reject) => { music.addEventListener('loadedmetadata', resolve, { once: true }); music.addEventListener('error', reject, { once: true }); });
-    music.currentTime = Number.isFinite(music.duration) ? music.duration * 0.3 : 0;
+    if (Number(ui.songStartOffset.value) >= music.duration) { message('The selected position is at the end of the song.'); return; }
+    music.currentTime = Number(ui.songStartOffset.value);
     demoPlaying = true; ui.demo.classList.add('is-playing'); ui.demo.setAttribute('aria-label', 'Stop song preview');
     await music.play();
   } catch (e) { stopDemo(); error(e); }
 };
 music.addEventListener('ended', () => { if (demoPlaying) stopDemo(); });
+function formatSongTime(value) {
+  const total = Math.floor(value), hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60, seconds = total % 60;
+  return [hours ? `${hours}h` : '', minutes ? `${minutes}m` : '', `${seconds}s`].filter(Boolean).join(' ');
+}
+function updateSongDuration() {
+  const duration = music.duration;
+  if (!songFile || !Number.isFinite(duration) || duration <= 0) return;
+  songReady = true;
+  ui.songStartOffset.max = String(duration);
+  ui.songStartOffset.disabled = startPending || inReview || recorder?.state === 'recording';
+  ui.demo.disabled = ui.songStartOffset.disabled;
+  ui.startTicks.replaceChildren();
+  for (let seconds = 30; seconds < duration; seconds += 30) {
+    const tick = document.createElement('span');
+    tick.className = seconds % 60 === 0 ? 'start-tick minute' : 'start-tick';
+    tick.style.left = `${seconds / duration * 100}%`;
+    ui.startTicks.append(tick);
+  }
+  ready();
+}
+music.addEventListener('loadedmetadata', updateSongDuration);
+music.addEventListener('durationchange', updateSongDuration);
+music.addEventListener('error', () => { if (songFile) { songReady = false; ui.songStartOffset.disabled = true; ui.demo.disabled = true; ready(); message('Could not read this audio file.'); } });
+ui.songStartOffset.oninput = () => {
+  ui.startOffsetValue.textContent = formatSongTime(Number(ui.songStartOffset.value));
+  if (demoPlaying) music.currentTime = Number(ui.songStartOffset.value);
+};
 ui.song.onchange = () => {
   stopDemo();
   const file = ui.song.files[0]; if (!file) return;
   if (songURL) URL.revokeObjectURL(songURL);
+  songReady = false; ui.songStartOffset.disabled = true; ui.demo.disabled = true;
+  ui.songStartOffset.value = '0'; ui.songStartOffset.max = '0'; ui.startOffsetValue.textContent = '0s'; ui.startTicks.replaceChildren();
   songFile = file; songURL = URL.createObjectURL(file); music.src = songURL;
-  ui.songName.textContent = file.name; ui.demo.disabled = false; ready(); message('');
+  ui.songName.textContent = file.name; ready(); message('');
 };
 function updateCameraControls() {
   ui.front.setAttribute('aria-pressed', String(facing === 'user'));
@@ -127,8 +159,9 @@ delayButtons.forEach(button => button.onclick = () => {
 });
 function lockRecordingControls(locked) {
   ui.front.disabled = ui.back.disabled = ui.mirror.disabled = ui.resolution.disabled = ui.fps.disabled = ui.camera.disabled = ui.song.disabled = ui.offset.disabled = ui.photo.disabled = locked;
+  ui.songStartOffset.disabled = locked || !songReady;
   delayButtons.forEach(button => { button.disabled = locked; });
-  ui.demo.disabled = locked || !songURL;
+  ui.demo.disabled = locked || !songReady;
 }
 function resetRecordingControls() {
   startPending = false; clearInterval(countdownTimer); countdownTimer = null;
@@ -163,19 +196,23 @@ function runCountdown(begin, generation) {
 
 updateCameraControls();
 ui.record.onclick = async () => {
-  if (startPending || !stream || !songFile) return;
+  if (startPending || !stream || !songReady) return;
   const generation = ++startGeneration;
   try {
     if (!window.MediaRecorder) throw new Error('This browser does not support video recording.');
+    recordedSongOffset = Number(ui.songStartOffset.value);
     clearPhoto(); startPending = true; lockRecordingControls(true); ready();
     ui.record.hidden = true; ui.stop.hidden = false; ui.stopLabel.textContent = 'Cancel';
     stopDemo(); await audioSetup();
     if (generation !== startGeneration) return;
     // Unlock playback inside the tap gesture before a delayed start on iOS.
-    music.pause(); music.currentTime = 0; music.muted = true;
-    try { await music.play(); } finally { music.pause(); music.muted = false; }
+    music.pause(); music.currentTime = recordedSongOffset;
+    if (recordedSongOffset < music.duration) {
+      music.muted = true;
+      try { await music.play(); } finally { music.pause(); music.muted = false; }
+    }
     if (generation !== startGeneration) return;
-    music.currentTime = 0;
+    music.currentTime = recordedSongOffset;
     const begin = async () => {
       if (generation !== startGeneration) return;
       try {
@@ -197,7 +234,8 @@ ui.record.onclick = async () => {
         };
         recorder.start(250); const recordingStart = performance.now();
         startPending = false; ui.stopLabel.textContent = 'Stop'; message('');
-        await music.play(); songStart = (performance.now() - recordingStart) / 1000;
+        if (recordedSongOffset < music.duration) { await music.play(); songStart = (performance.now() - recordingStart) / 1000; }
+        else songStart = 0;
       } catch (e) {
         if (recorder?.state === 'recording') recorder.stop(); else resetRecordingControls();
         error(e);
@@ -255,8 +293,8 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=19');
-    const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), mirrored: recordedMirrored, onProgress: message });
+    const { exportRecording } = await import('/fast-export.js?v=20');
+    const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
     link.href = url; link.download = `recordance-${Date.now()}.mp4`;
@@ -267,4 +305,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=19').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=20').catch(console.warn);

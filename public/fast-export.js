@@ -35435,7 +35435,7 @@ if (globalThis[MEDIABUNNY_LOADED_SYMBOL]) {
 globalThis[MEDIABUNNY_LOADED_SYMBOL] = true;
 
 // src/fast-export.js
-async function exportRecording({ video, song, duration, delay, mirrored, onProgress }) {
+async function exportRecording({ video, song, duration, delay, startOffset = 0, mirrored, onProgress }) {
   if (!window.AudioEncoder || !window.VideoDecoder || !await canEncodeAudio("aac")) {
     throw new Error("Fast export needs AAC encoding and WebCodecs. Update iOS and Safari to version 26 or later.");
   }
@@ -35462,10 +35462,11 @@ async function exportRecording({ video, song, duration, delay, mirrored, onProgr
     const total = Math.ceil(duration * rate);
     const channels = Math.min(songBuffer.numberOfChannels, 2);
     const shift = Math.round(delay * rate);
+    const songOffset = Math.max(0, Math.round(startOffset * rate));
     for (let pos = 0; pos < total; pos += rate) {
       const length = Math.min(rate, total - pos);
       const chunk = context.createBuffer(channels, length, rate);
-      const inputStart = Math.max(0, pos - shift);
+      const inputStart = songOffset + Math.max(0, pos - shift);
       const outputStart = Math.max(0, shift - pos);
       const count = Math.min(length - outputStart, songBuffer.length - inputStart);
       if (count > 0) for (let ch = 0; ch < channels; ch++) {
