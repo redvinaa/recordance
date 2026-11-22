@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 const ui = Object.fromEntries(['song','songName','songStartOffset','startOffsetValue','startTicks','demo','camera','cameraLabel','cameraIcon','photo','photoIcon','photoPreview','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
 let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false;
 let audioContext, musicNode, previewWaiting = false, musicPlayPending = false, previewGeneration = 0, syncNeedsAlignment = true, syncVersion = 0, previewWatchdog;
+let stopPreviewFrames;
 let facing = 'environment', recordedMirrored = false, recordedSongOffset = 0, photoURL, inReview = false, songReady = false;
 let songIdentityReady = true, songId = null, songSelectionVersion = 0, pendingSongOffset = null;
 let startDelay = 0, startPending = false, countdownTimer, startGeneration = 0, levelEnabled = false;
@@ -129,22 +130,38 @@ function sync() {
   }
 }
 
-// A small seek can recover an iOS preview whose playback clock has stopped.
+// Some iOS previews stop presenting frames even though their clock advances.
 function startPreviewWatchdog() {
   if (previewWatchdog) return;
-  let position = ui.preview.currentTime, lastAdvance = performance.now(), lastRecovery = 0;
+  const video = ui.preview;
+  let position = video.currentTime, lastAdvance = performance.now(), lastFrame = lastAdvance;
+  let lastRecovery = -Infinity, frameSeen = false, recoveries = 0, frameCallback, active = true;
+  const watchFrame = () => {
+    frameCallback = video.requestVideoFrameCallback(() => {
+      if (!active) return;
+      frameSeen = true; lastFrame = performance.now(); recoveries = 0;
+      watchFrame();
+    });
+  };
+  if (typeof video.requestVideoFrameCallback === 'function') watchFrame();
   previewWatchdog = setInterval(() => {
-    const video = ui.preview, now = performance.now(), current = video.currentTime;
-    if (document.visibilityState === 'hidden' || video.paused || video.seeking) {
-      position = current; lastAdvance = now; return;
+    const now = performance.now(), current = video.currentTime;
+    if (document.visibilityState === 'hidden' || video.paused || video.seeking || video.webkitDisplayingFullscreen || document.fullscreenElement) {
+      position = current; lastAdvance = lastFrame = now; return;
     }
-    if (Math.abs(current - position) > 0.01) { position = current; lastAdvance = now; return; }
-    if (now - lastAdvance < 4000 || now - lastRecovery < 5000 || !Number.isFinite(video.duration) || current >= video.duration - 0.1) return;
-    lastAdvance = lastRecovery = now; stopSync();
+    if (Math.abs(current - position) > 0.01) { position = current; lastAdvance = now; }
+    const clockStalled = now - lastAdvance >= 4000;
+    const framesStalled = frameSeen && now - lastFrame >= 4000;
+    if ((!clockStalled && !framesStalled) || recoveries >= 2 || now - lastRecovery < 8000 || !Number.isFinite(video.duration) || current >= video.duration - 0.1) return;
+    ++recoveries; lastAdvance = lastFrame = lastRecovery = now; stopSync();
     video.currentTime = Math.min(current + 0.05, video.duration - 0.01);
   }, 750);
+  stopPreviewFrames = () => {
+    active = false;
+    if (frameCallback != null && typeof video.cancelVideoFrameCallback === 'function') video.cancelVideoFrameCallback(frameCallback);
+  };
 }
-function stopPreviewWatchdog() { clearInterval(previewWatchdog); previewWatchdog = null; }
+function stopPreviewWatchdog() { stopPreviewFrames?.(); stopPreviewFrames = null; clearInterval(previewWatchdog); previewWatchdog = null; }
 
 let demoPlaying = false;
 function stopDemo() { if (!demoPlaying) return; music.pause(); music.currentTime = Number(ui.songStartOffset.value); demoPlaying = false; ui.demo.classList.remove('is-playing'); ui.demo.setAttribute('aria-label', 'Preview song'); }
@@ -365,7 +382,7 @@ ui.record.onclick = async () => {
           lockRecordingControls(true); ui.offset.disabled = false; ui.offsetValue.disabled = false;
           ui.save.disabled = ui.again.disabled = true; message('Preparing preview…');
           try {
-            const { preparePreview } = await import('/fast-export.js?v=25');
+            const { preparePreview } = await import('/fast-export.js?v=26');
             videoBlob = await preparePreview(original);
           } catch (e) {
             console.warn('Could not remux preview; using original recording.', e);
@@ -457,7 +474,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=25');
+    const { exportRecording } = await import('/fast-export.js?v=26');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -469,4 +486,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.offsetValue.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=25').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=26').catch(console.warn);
