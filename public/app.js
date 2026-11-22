@@ -65,15 +65,29 @@ function updateSongDuration() {
   ui.songStartOffset.max = String(duration);
   ui.songStartOffset.disabled = startPending || inReview || recorder?.state === 'recording';
   ui.demo.disabled = ui.songStartOffset.disabled;
-  ui.startTicks.replaceChildren();
-  for (let seconds = 30; seconds < duration; seconds += 30) {
-    const tick = document.createElement('span');
-    tick.className = seconds % 60 === 0 ? 'start-tick minute' : 'start-tick';
-    tick.style.left = `${seconds / duration * 100}%`;
-    ui.startTicks.append(tick);
-  }
+  renderStartTicks();
   ready();
 }
+function renderStartTicks() {
+  ui.startTicks.replaceChildren();
+  const duration = music.duration;
+  if (!songReady || !Number.isFinite(duration) || duration <= 0) return;
+  // Keep major marks about 56 pixels apart, with a shorter mark halfway.
+  const width = Math.max(1, (ui.songStartOffset.clientWidth || 200) - 16);
+  const target = duration * 56 / width;
+  const steps = [2, 4, 10, 20, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
+  let major = steps.find(step => step >= target) || steps[steps.length - 1];
+  while (major < target) major *= 2;
+  const half = major / 2;
+  for (let i = 1; i * half < duration; i++) {
+    const tick = document.createElement('span');
+    tick.className = i % 2 === 0 ? 'start-tick major' : 'start-tick';
+    tick.style.left = `${i * half / duration * 100}%`;
+    ui.startTicks.append(tick);
+  }
+}
+if (window.ResizeObserver) new ResizeObserver(renderStartTicks).observe(ui.songStartOffset);
+else window.addEventListener('resize', renderStartTicks);
 music.addEventListener('loadedmetadata', updateSongDuration);
 music.addEventListener('durationchange', updateSongDuration);
 music.addEventListener('error', () => { if (songFile) { songReady = false; ui.songStartOffset.disabled = true; ui.demo.disabled = true; ready(); message('Could not read this audio file.'); } });
@@ -293,7 +307,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=20');
+    const { exportRecording } = await import('/fast-export.js?v=21');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -305,4 +319,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=20').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=21').catch(console.warn);
