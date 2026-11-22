@@ -35,7 +35,7 @@ If your computer's IP changes, generate a new certificate for the new address. A
 
 ## Use
 
-1. Connect your AirPods. Choose an audio file and tap **Camera**. Set **Start offset** to the desired position, then use the adjacent play button to preview from there; tap it again to stop.
+1. Connect your AirPods. Choose an audio file and tap **Camera**. Set **Start offset** to the desired position (up to 59m 59s), then use the adjacent play button to preview from there; tap it again to stop.
 2. Choose the front or back camera. The front camera can be mirrored; this applies to the live preview and saved video. The review uses native video controls and shows the unmirrored recording. Select a 0, 3 or 5 second start delay, then tap **Record**. The song starts when recording begins; tap **Cancel** during the countdown or **Stop** while recording. Allow motion access when starting the camera to show the level guide automatically. Recording starts the song from the selected offset.
 3. Play the preview. Drag the **Music timing** slider toward **Music earlier** or **Music later** while it plays; this moves the soundtrack relative to the captured video, rather than seeking to a fixed position in the song. The range is ±200 milliseconds in 10 ms steps. At a boundary where the chosen offset would require audio before the song begins or after it ends, that part will be silent.
 4. Tap **Save video**. The app processes the take locally without playing it through. Keep the page open while it saves. Fast export requires Safari/iOS 26 or later with supported codecs. When finished, use the browser's download/share controls to save the file to Photos. The generated format depends on browser support.

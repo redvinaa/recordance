@@ -62,7 +62,7 @@ function updateSongDuration() {
   const duration = music.duration;
   if (!songFile || !Number.isFinite(duration) || duration <= 0) return;
   songReady = true;
-  ui.songStartOffset.max = String(duration);
+  ui.songStartOffset.max = String(Math.min(duration, 3599));
   ui.songStartOffset.disabled = startPending || inReview || recorder?.state === 'recording';
   ui.demo.disabled = ui.songStartOffset.disabled;
   renderStartTicks();
@@ -70,7 +70,7 @@ function updateSongDuration() {
 }
 function renderStartTicks() {
   ui.startTicks.replaceChildren();
-  const duration = music.duration;
+  const duration = Number(ui.songStartOffset.max);
   if (!songReady || !Number.isFinite(duration) || duration <= 0) return;
   // Keep major marks about 56 pixels apart, with a shorter mark halfway.
   const width = Math.max(1, (ui.songStartOffset.clientWidth || 200) - 16);
