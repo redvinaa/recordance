@@ -35484,8 +35484,23 @@ async function exportRecording({ video, song, duration, delay, startOffset = 0, 
     await context.close();
   }
 }
+async function preparePreview(video) {
+  const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(video) });
+  try {
+    const target = new BufferTarget();
+    const output = new Output({ format: new Mp4OutputFormat({ fastStart: "in-memory" }), target });
+    const conversion = await Conversion.init({ input, output, audio: { discard: true }, copy: { mode: "forced" } });
+    if (!conversion.isValid || !conversion.utilizedTracks.length) throw new Error("Recording cannot be remuxed for preview.");
+    await conversion.execute();
+    if (!target.buffer?.byteLength) throw new Error("The prepared preview is empty.");
+    return new Blob([target.buffer], { type: "video/mp4" });
+  } finally {
+    input.dispose();
+  }
+}
 export {
-  exportRecording
+  exportRecording,
+  preparePreview
 };
 /*! Bundled license information:
 

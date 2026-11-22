@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
 const ui = Object.fromEntries(['song','songName','songStartOffset','startOffsetValue','startTicks','demo','camera','cameraLabel','cameraIcon','photo','photoIcon','photoPreview','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
 let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false;
-let audioContext, musicNode, syncMonitor, previewWaiting = false, previewStalled = false, musicPlayPending = false, previewGeneration = 0;
+let audioContext, musicNode, previewWaiting = false, musicPlayPending = false, previewGeneration = 0, syncNeedsAlignment = true;
 let facing = 'environment', recordedMirrored = false, recordedSongOffset = 0, photoURL, inReview = false, songReady = false;
 let startDelay = 0, startPending = false, countdownTimer, startGeneration = 0, levelEnabled = false;
 const delayButtons = [...document.querySelectorAll('.delay-option')];
@@ -21,50 +21,29 @@ async function audioSetup() {
   if (audioContext.state !== 'running') await audioContext.resume();
 }
 function stopSync() {
-  cancelAnimationFrame(animation); clearInterval(syncMonitor); syncMonitor = null;
+  cancelAnimationFrame(animation); syncNeedsAlignment = true;
   music.pause();
 }
-// Align against the recorded start and adjustment; do not seek repeatedly per frame.
+// Align only on play, seek, buffering recovery or a timing adjustment.
 function sync() {
   cancelAnimationFrame(animation);
-  if (ui.preview.paused || ui.preview.seeking || previewWaiting || previewStalled) return;
+  if (ui.preview.paused || ui.preview.seeking || previewWaiting) return;
   const elapsed = ui.preview.currentTime - songStart - offset();
   const target = recordedSongOffset + elapsed;
   if (elapsed < 0) {
     music.pause();
     animation = requestAnimationFrame(sync);
   } else if (Number.isFinite(music.duration) && target >= music.duration) {
-    music.pause();
+    music.pause(); syncNeedsAlignment = false;
   } else {
-    if (Math.abs(music.currentTime - target) > 0.03 && !music.seeking) music.currentTime = target;
+    if (Math.abs(music.currentTime - target) > 0.03) music.currentTime = target;
     music.playbackRate = ui.preview.playbackRate || 1;
+    syncNeedsAlignment = false;
     if (music.paused && !musicPlayPending) {
       musicPlayPending = true;
       Promise.resolve(music.play()).catch(e => { if (e?.name !== 'AbortError') error(e); }).finally(() => { musicPlayPending = false; });
     }
   }
-}
-function monitorSync() {
-  clearInterval(syncMonitor);
-  let lastTime = ui.preview.currentTime, lastAdvance = performance.now(), lastCorrection = 0;
-  syncMonitor = setInterval(() => {
-    if (ui.preview.paused || ui.preview.seeking || previewWaiting) return;
-    const now = performance.now(), current = ui.preview.currentTime;
-    if (Math.abs(current - lastTime) > 0.01) {
-      lastTime = current; lastAdvance = now;
-      if (previewStalled) { previewStalled = false; sync(); lastCorrection = now; }
-    } else if (now - lastAdvance > 1200) {
-      if (!previewStalled) { previewStalled = true; cancelAnimationFrame(animation); music.pause(); }
-      return;
-    }
-    const elapsed = current - songStart - offset();
-    const target = recordedSongOffset + elapsed;
-    if (elapsed >= 0 && (!Number.isFinite(music.duration) || target < music.duration) &&
-        !music.seeking && now - lastCorrection > 1500 &&
-        (Math.abs(music.currentTime - target) > 0.35 || (music.paused && !musicPlayPending))) {
-      lastCorrection = now; sync();
-    }
-  }, 500);
 }
 
 let demoPlaying = false;
@@ -263,20 +242,29 @@ ui.record.onclick = async () => {
         chunks = []; recorder = new MediaRecorder(stream);
         recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
         recorder.onerror = e => error(e.error || new Error('Recording failed.'));
-        recorder.onstop = () => {
+        recorder.onstop = async () => {
           music.pause(); resetRecordingControls();
           if (!chunks.length) { message('No video was recorded. Please try again.'); return; }
           if (videoURL) URL.revokeObjectURL(videoURL);
-          videoBlob = new Blob(chunks, { type: recorder.mimeType || 'video/mp4' });
-          videoURL = URL.createObjectURL(videoBlob);
-          // Release the camera before decoding the recording, especially on iPhone.
+          const original = new Blob(chunks, { type: recorder.mimeType || 'video/mp4' });
+          // Release the camera before preparing and decoding the recording.
           stream?.getTracks().forEach(track => track.stop()); stream = null; ui.live.srcObject = null;
-          ui.preview.src = videoURL; ui.live.hidden = true; ui.preview.hidden = false;
+          ui.live.hidden = true; ui.preview.hidden = false;
           inReview = true; ui.liveFrame.classList.add('reviewing');
           ui.camera.hidden = true; ui.record.hidden = true; ui.save.hidden = false; ui.again.hidden = false;
-          lockRecordingControls(true); ui.offset.disabled = false; ui.offsetValue.disabled = false; message('');
+          lockRecordingControls(true); ui.offset.disabled = false; ui.offsetValue.disabled = false;
+          ui.save.disabled = ui.again.disabled = true; message('Preparing preview…');
+          try {
+            const { preparePreview } = await import('/fast-export.js?v=24');
+            videoBlob = await preparePreview(original);
+          } catch (e) {
+            console.warn('Could not remux preview; using original recording.', e);
+            videoBlob = original;
+          }
+          videoURL = URL.createObjectURL(videoBlob); ui.preview.src = videoURL;
+          ui.save.disabled = ui.again.disabled = false; message('');
         };
-        recorder.start(250); const recordingStart = performance.now();
+        recorder.start(); const recordingStart = performance.now();
         startPending = false; ui.stopLabel.textContent = 'Stop'; message('');
         if (recordedSongOffset < music.duration) { await music.play(); songStart = (performance.now() - recordingStart) / 1000; }
         else songStart = 0;
@@ -330,18 +318,18 @@ ui.preview.onplaying = async () => {
   try {
     await audioSetup();
     if (generation !== previewGeneration || ui.preview.paused || ui.preview.seeking) return;
-    previewWaiting = false; previewStalled = false; sync(); monitorSync();
+    previewWaiting = false; if (syncNeedsAlignment) sync();
   } catch (e) { error(e); }
 };
 ui.preview.onwaiting = () => { ++previewGeneration; previewWaiting = true; stopSync(); };
 ui.preview.onseeking = () => { ++previewGeneration; stopSync(); };
 ui.preview.onseeked = () => {
   if (!ui.preview.paused && ui.preview.readyState >= 3) {
-    previewWaiting = false; previewStalled = false; sync(); monitorSync();
+    previewWaiting = false; if (syncNeedsAlignment) sync();
   }
 };
-ui.preview.onratechange = () => { if (!ui.preview.paused) sync(); };
-ui.preview.onpause = () => { ++previewGeneration; previewWaiting = false; previewStalled = false; stopSync(); };
+ui.preview.onratechange = () => { music.playbackRate = ui.preview.playbackRate || 1; };
+ui.preview.onpause = () => { ++previewGeneration; previewWaiting = false; stopSync(); };
 ui.preview.onended = stopSync;
 ui.offset.oninput = () => { format(); if (!ui.preview.paused) sync(); };
 ui.offsetValue.onclick = () => { if (ui.offset.disabled) return; ui.offset.value = '0'; ui.offset.oninput(); };
@@ -359,7 +347,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=23');
+    const { exportRecording } = await import('/fast-export.js?v=24');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -371,4 +359,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.offsetValue.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=23').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=24').catch(console.warn);
