@@ -34,3 +34,4 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}main{height:100dv
 .start-offset-row label,.timing-row label{flex:0 0 82px;white-space:nowrap}.start-offset-row output,.timing-row output{flex:0 0 62px;width:62px;white-space:nowrap}
 
 .timing-row .timing-reset{flex:0 0 62px;width:62px;min-height:35px;padding:0;border:0;background:transparent;color:#6551b5;text-align:right;white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}
+.start-ticks::after{content:"";position:absolute;right:0;top:0;width:1px;height:9px;background:#8e8d96}
