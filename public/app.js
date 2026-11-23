@@ -1,9 +1,9 @@
 const $ = id => document.getElementById(id);
 // A video-only preview isolates iOS fullscreen playback from the separate song player.
 const diagnoseVideo = typeof location !== 'undefined' && new URLSearchParams(location.search).get('diagnose') === 'video';
-const ui = Object.fromEntries(['song','songName','songStartOffset','startOffsetValue','startTicks','demo','camera','cameraLabel','cameraIcon','photo','photoIcon','photoPreview','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status'].map(id => [id, $(id)]));
-let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false;
-let audioContext, musicNode, previewWaiting = false, musicPlayPending = false, previewGeneration = 0, syncNeedsAlignment = true, syncVersion = 0;
+const ui = Object.fromEntries(['song','songName','songStartOffset','startOffsetValue','startTicks','demo','camera','cameraLabel','cameraIcon','photo','photoIcon','photoPreview','live','liveFrame','front','back','mirror','mirrorRow','resolution','fps','cameraActual','level','levelBar','countdown','record','stop','stopLabel','preview','offset','offsetValue','save','again','status','statusText','cancelSave'].map(id => [id, $(id)]));
+let stream, recorder, chunks = [], videoURL, songURL, songFile, videoBlob, songStart = 0, animation, exporting = false, exportController;
+let audioContext, previewWaiting = false, musicPlayPending = false, previewGeneration = 0, syncNeedsAlignment = true, syncVersion = 0;
 let facing = 'environment', recordedMirrored = false, recordedSongOffset = 0, photoURL, inReview = false, songReady = false;
 let songIdentityReady = true, songId = null, songSelectionVersion = 0, pendingSongOffset = null;
 let startDelay = 0, startPending = false, countdownTimer, startGeneration = 0, levelEnabled = false;
@@ -82,7 +82,7 @@ async function restoreSong() {
 }
 const music = new Audio();
 music.preload = 'auto';
-const message = text => { ui.status.textContent = text; };
+const message = text => { ui.statusText.textContent = text; ui.status.hidden = !text; };
 // The signed square gives finer timing control near the centre of the slider.
 const offset = () => { const x = Number(ui.offset.value); return x * Math.abs(x); };
 const format = () => {
@@ -94,11 +94,7 @@ const format = () => {
 function ready() { ui.record.disabled = !stream || !songReady || !songIdentityReady || startPending || recorder?.state === 'recording'; ui.photo.disabled = !stream || startPending || inReview || recorder?.state === 'recording'; }
 function error(e) { console.error(e); message(e?.message || String(e)); }
 async function audioSetup() {
-  if (!audioContext) {
-    audioContext = new AudioContext();
-    musicNode = audioContext.createMediaElementSource(music);
-    musicNode.connect(audioContext.destination);
-  }
+  if (!audioContext) audioContext = new AudioContext();
   if (audioContext.state !== 'running') await audioContext.resume();
 }
 function stopSync() {
@@ -329,7 +325,7 @@ ui.record.onclick = async () => {
     recordedSongOffset = Number(ui.songStartOffset.value);
     clearPhoto(); startPending = true; lockRecordingControls(true); ready();
     ui.record.hidden = true; ui.stop.hidden = false; ui.stopLabel.textContent = 'Cancel';
-    stopDemo(); await audioSetup();
+    stopDemo(); if (startDelay) await audioSetup();
     if (generation !== startGeneration) return;
     // Unlock playback inside the tap gesture before a delayed start on iOS.
     music.pause(); music.currentTime = recordedSongOffset;
@@ -348,7 +344,7 @@ ui.record.onclick = async () => {
         recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
         recorder.onerror = e => error(e.error || new Error('Recording failed.'));
         recorder.onstop = async () => {
-          music.pause(); resetRecordingControls();
+          music.pause(); if (diagnoseVideo) music.muted = true; resetRecordingControls();
           if (!chunks.length) { message('No video was recorded. Please try again.'); return; }
           if (videoURL) URL.revokeObjectURL(videoURL);
           const original = new Blob(chunks, { type: recorder.mimeType || 'video/mp4' });
@@ -360,7 +356,7 @@ ui.record.onclick = async () => {
           lockRecordingControls(true); ui.offset.disabled = false; ui.offsetValue.disabled = false;
           ui.save.disabled = ui.again.disabled = true; message('Preparing preview…');
           try {
-            const { preparePreview } = await import('/fast-export.js?v=31');
+            const { preparePreview } = await import('/fast-export.js?v=32');
             videoBlob = await preparePreview(original);
           } catch (e) {
             console.warn('Could not remux preview; using original recording.', e);
@@ -372,7 +368,11 @@ ui.record.onclick = async () => {
         };
         recorder.start(); const recordingStart = performance.now();
         startPending = false; ui.stopLabel.textContent = 'Stop'; message('');
-        if (recordedSongOffset < music.duration) { await music.play(); songStart = (performance.now() - recordingStart) / 1000; }
+        if (recordedSongOffset < music.duration) {
+          await music.play();
+          songStart = (performance.now() - recordingStart) / 1000 - Math.max(0, music.currentTime - recordedSongOffset);
+          if (recorder.state !== 'recording') music.pause();
+        }
         else songStart = 0;
       } catch (e) {
         if (recorder?.state === 'recording') recorder.stop(); else resetRecordingControls();
@@ -418,14 +418,10 @@ ui.stop.onclick = () => {
   if (startPending) { ++startGeneration; music.pause(); music.muted = false; resetRecordingControls(); message('Countdown cancelled.'); }
   else if (recorder?.state === 'recording') recorder.stop();
 };
-ui.preview.onplay = async () => { try { await audioSetup(); } catch (e) { error(e); } };
-ui.preview.onplaying = async () => {
-  const generation = ++previewGeneration;
-  try {
-    await audioSetup();
-    if (generation !== previewGeneration || ui.preview.paused || ui.preview.seeking) return;
-    previewWaiting = false; if (syncNeedsAlignment) sync();
-  } catch (e) { error(e); }
+ui.preview.onplaying = () => {
+  ++previewGeneration;
+  if (ui.preview.paused || ui.preview.seeking) return;
+  previewWaiting = false; if (syncNeedsAlignment) sync();
 };
 ui.preview.onwaiting = () => { ++previewGeneration; previewWaiting = true; stopSync(); };
 ui.preview.onseeking = () => { ++previewGeneration; stopSync(); };
@@ -441,29 +437,32 @@ ui.offset.oninput = () => { format(); saveSettings(); if (!ui.preview.paused) sy
 ui.offset.onchange = () => { if (!ui.preview.paused) sync(true); };
 ui.offsetValue.onclick = () => { if (ui.offset.disabled) return; ui.offset.value = '0'; ui.offset.oninput(); ui.offset.onchange(); };
 ui.again.onclick = async () => {
-  inReview = false; stopSync(); ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load();
+  inReview = false; stopSync(); music.muted = false; ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load();
   ui.preview.hidden = true; ui.live.hidden = false; ui.liveFrame.classList.remove('reviewing');
   ui.camera.hidden = false; ui.record.hidden = false; ui.save.hidden = true; ui.again.hidden = true;
   lockRecordingControls(false); ready(); message('');
   await startCamera();
 };
+ui.cancelSave.onclick = () => { if (exportController) { exportController.abort(); ui.cancelSave.disabled = true; message('Cancelling…'); } };
 ui.save.onclick = async () => {
   if (exporting) return;
   try {
-    exporting = true; ui.save.disabled = true; ui.again.disabled = true; ui.offset.disabled = true; ui.offsetValue.disabled = true;
+    exporting = true; exportController = new AbortController(); ui.cancelSave.hidden = false; ui.cancelSave.disabled = false;
+    ui.save.disabled = true; ui.again.disabled = true; ui.offset.disabled = true; ui.offsetValue.disabled = true;
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=31');
-    const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
+    const { exportRecording } = await import('/fast-export.js?v=32');
+    const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: text => { if (!exportController.signal.aborted) message(text); }, signal: exportController.signal });
+    exportController.signal.throwIfAborted();
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
     link.href = url; link.download = `recordance-${Date.now()}.mp4`;
     document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
-    message('Export ready. Use the browser download or share sheet to save it to Photos.');
-  } catch (e) { error(e); }
-  finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.offsetValue.disabled = false; }
+    message('');
+  } catch (e) { if (exportController?.signal.aborted) message(''); else error(e); }
+  finally { exporting = false; exportController = null; ui.cancelSave.hidden = true; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.offsetValue.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=31').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=32').catch(console.warn);

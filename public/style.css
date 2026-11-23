@@ -35,3 +35,4 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}main{height:100dv
 
 .timing-row .timing-reset{flex:0 0 62px;width:62px;min-height:35px;padding:0;border:0;background:transparent;color:#6551b5;text-align:right;white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}
 .start-ticks::after{content:"";position:absolute;right:0;top:0;width:1px;height:9px;background:#8e8d96}
+#status:not([hidden]){display:flex;align-items:center;gap:8px;pointer-events:auto}#cancelSave{display:grid;place-items:center;flex:none;width:24px;height:24px;padding:0;border:0;background:transparent;color:inherit}#cancelSave .icon{width:16px;height:16px}#cancelSave[hidden]{display:none}
