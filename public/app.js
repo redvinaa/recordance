@@ -15,7 +15,7 @@ try {
 } catch { /* Local storage may be unavailable in private browsing. */ }
 function saveSettings() {
   try {
-    Object.assign(settings, { facing, mirror: ui.mirror.checked, resolution: ui.resolution.value, fps: ui.fps.value, startDelay, timing: Number(ui.offset.value) });
+    Object.assign(settings, { facing, mirror: ui.mirror.checked, resolution: ui.resolution.value, fps: ui.fps.value, startDelay, timing: offset() * 1000 });
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   } catch { /* Settings remain usable for this session. */ }
 }
@@ -82,8 +82,14 @@ async function restoreSong() {
 const music = new Audio();
 music.preload = 'auto';
 const message = text => { ui.status.textContent = text; };
-const offset = () => Number(ui.offset.value) / 1000;
-const format = () => { const n = Number(ui.offset.value); ui.offsetValue.textContent = `${n > 0 ? '+' : ''}${n} ms`; };
+// The signed square gives finer timing control near the centre of the slider.
+const offset = () => { const x = Number(ui.offset.value); return x * Math.abs(x); };
+const format = () => {
+  const n = Math.round(offset() * 1000);
+  const text = `${n > 0 ? '+' : ''}${n || 0} ms`;
+  ui.offsetValue.textContent = text;
+  ui.offset.setAttribute('aria-valuetext', text);
+};
 function ready() { ui.record.disabled = !stream || !songReady || !songIdentityReady || startPending || recorder?.state === 'recording'; ui.photo.disabled = !stream || startPending || inReview || recorder?.state === 'recording'; }
 function error(e) { console.error(e); message(e?.message || String(e)); }
 async function audioSetup() {
@@ -339,7 +345,10 @@ if (typeof settings.mirror === 'boolean') ui.mirror.checked = settings.mirror;
 if (['auto', '720', '1080', '2160'].includes(settings.resolution)) ui.resolution.value = settings.resolution;
 if (['auto', '30', '60'].includes(settings.fps)) ui.fps.value = settings.fps;
 if ([0, 3, 5].includes(settings.startDelay)) startDelay = settings.startDelay;
-if (Number.isFinite(settings.timing)) ui.offset.value = String(Math.min(200, Math.max(-200, settings.timing)));
+if (Number.isFinite(settings.timing)) {
+  const seconds = Math.min(1, Math.max(-1, settings.timing / 1000));
+  ui.offset.value = String(Math.sign(seconds) * Math.sqrt(Math.abs(seconds)));
+}
 delayButtons.forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.delay) === startDelay)));
 updateCameraControls();
 void restoreSong();
@@ -382,7 +391,7 @@ ui.record.onclick = async () => {
           lockRecordingControls(true); ui.offset.disabled = false; ui.offsetValue.disabled = false;
           ui.save.disabled = ui.again.disabled = true; message('Preparing preview…');
           try {
-            const { preparePreview } = await import('/fast-export.js?v=26');
+            const { preparePreview } = await import('/fast-export.js?v=27');
             videoBlob = await preparePreview(original);
           } catch (e) {
             console.warn('Could not remux preview; using original recording.', e);
@@ -474,7 +483,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=26');
+    const { exportRecording } = await import('/fast-export.js?v=27');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -486,4 +495,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.offsetValue.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=26').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=27').catch(console.warn);
