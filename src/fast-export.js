@@ -1,4 +1,5 @@
 import { ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, Conversion, Input, Mp4OutputFormat, Output, QUALITY_HIGH, canEncodeAudio } from 'mediabunny';
+import { copyTimedAudio } from './audio-timing.js';
 
 /** Assemble audio and the recorded video without waiting for playback. */
 export async function exportRecording({ video, song, duration, delay, startOffset = 0, mirrored, onProgress }) {
@@ -30,12 +31,7 @@ export async function exportRecording({ video, song, duration, delay, startOffse
     for (let pos = 0; pos < total; pos += rate) {
       const length = Math.min(rate, total - pos);
       const chunk = context.createBuffer(channels, length, rate);
-      const inputStart = songOffset + Math.max(0, pos - shift);
-      const outputStart = Math.max(0, shift - pos);
-      const count = Math.min(length - outputStart, songBuffer.length - inputStart);
-      if (count > 0) for (let ch = 0; ch < channels; ch++) {
-        chunk.getChannelData(ch).set(songBuffer.getChannelData(ch).subarray(inputStart, inputStart + count), outputStart);
-      }
+      copyTimedAudio(songBuffer, chunk, pos, shift, songOffset);
       onProgress(`Saving… ${Math.min(99, Math.round(pos / total * 100))}%`);
       await Promise.all([audio.add(chunk), conversion.execute({ until: (pos + length) / rate })]);
     }

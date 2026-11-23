@@ -35434,6 +35434,17 @@ if (globalThis[MEDIABUNNY_LOADED_SYMBOL]) {
 }
 globalThis[MEDIABUNNY_LOADED_SYMBOL] = true;
 
+// src/audio-timing.js
+function copyTimedAudio(song, chunk, position, shift, songOffset) {
+  const inputStart = songOffset + Math.max(0, position - shift);
+  const outputStart = Math.max(0, shift - position);
+  const count = Math.min(chunk.length - outputStart, song.length - inputStart);
+  if (count <= 0) return;
+  for (let channel = 0; channel < chunk.numberOfChannels; channel++) {
+    chunk.getChannelData(channel).set(song.getChannelData(channel).subarray(inputStart, inputStart + count), outputStart);
+  }
+}
+
 // src/fast-export.js
 async function exportRecording({ video, song, duration, delay, startOffset = 0, mirrored, onProgress }) {
   if (!window.AudioEncoder || !window.VideoDecoder || !await canEncodeAudio("aac")) {
@@ -35466,12 +35477,7 @@ async function exportRecording({ video, song, duration, delay, startOffset = 0, 
     for (let pos = 0; pos < total; pos += rate) {
       const length = Math.min(rate, total - pos);
       const chunk = context.createBuffer(channels, length, rate);
-      const inputStart = songOffset + Math.max(0, pos - shift);
-      const outputStart = Math.max(0, shift - pos);
-      const count = Math.min(length - outputStart, songBuffer.length - inputStart);
-      if (count > 0) for (let ch = 0; ch < channels; ch++) {
-        chunk.getChannelData(ch).set(songBuffer.getChannelData(ch).subarray(inputStart, inputStart + count), outputStart);
-      }
+      copyTimedAudio(songBuffer, chunk, pos, shift, songOffset);
       onProgress(`Saving\u2026 ${Math.min(99, Math.round(pos / total * 100))}%`);
       await Promise.all([audio.add(chunk), conversion.execute({ until: (pos + length) / rate })]);
     }

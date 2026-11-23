@@ -105,18 +105,18 @@ function stopSync() {
   music.pause();
 }
 // Align only on play, seek, buffering recovery or a timing adjustment.
-function sync() {
+function sync(forceAlignment = false) {
   cancelAnimationFrame(animation);
   if (ui.preview.paused || ui.preview.seeking || previewWaiting) return;
   const elapsed = ui.preview.currentTime - songStart - offset();
   const target = recordedSongOffset + elapsed;
   if (elapsed < 0) {
     music.pause();
-    animation = requestAnimationFrame(sync);
+    animation = requestAnimationFrame(() => sync());
   } else if (Number.isFinite(music.duration) && target >= music.duration) {
     music.pause(); syncNeedsAlignment = false;
   } else {
-    if (Math.abs(music.currentTime - target) > 0.03) music.currentTime = target;
+    if (Math.abs(music.currentTime - target) > (forceAlignment || syncNeedsAlignment ? 0.001 : 0.03)) music.currentTime = target;
     music.playbackRate = ui.preview.playbackRate || 1;
     if (music.paused && musicPlayPending) { syncNeedsAlignment = true; return; }
     syncNeedsAlignment = false;
@@ -391,7 +391,7 @@ ui.record.onclick = async () => {
           lockRecordingControls(true); ui.offset.disabled = false; ui.offsetValue.disabled = false;
           ui.save.disabled = ui.again.disabled = true; message('Preparing preview…');
           try {
-            const { preparePreview } = await import('/fast-export.js?v=27');
+            const { preparePreview } = await import('/fast-export.js?v=28');
             videoBlob = await preparePreview(original);
           } catch (e) {
             console.warn('Could not remux preview; using original recording.', e);
@@ -468,7 +468,8 @@ ui.preview.onratechange = () => { music.playbackRate = ui.preview.playbackRate |
 ui.preview.onpause = () => { ++previewGeneration; previewWaiting = false; stopPreviewWatchdog(); stopSync(); };
 ui.preview.onended = () => { stopPreviewWatchdog(); stopSync(); };
 ui.offset.oninput = () => { format(); saveSettings(); if (!ui.preview.paused) sync(); };
-ui.offsetValue.onclick = () => { if (ui.offset.disabled) return; ui.offset.value = '0'; ui.offset.oninput(); };
+ui.offset.onchange = () => { if (!ui.preview.paused) sync(true); };
+ui.offsetValue.onclick = () => { if (ui.offset.disabled) return; ui.offset.value = '0'; ui.offset.oninput(); ui.offset.onchange(); };
 ui.again.onclick = async () => {
   inReview = false; stopSync(); ui.preview.pause(); ui.preview.removeAttribute('src'); ui.preview.load();
   ui.preview.hidden = true; ui.live.hidden = false; ui.liveFrame.classList.remove('reviewing');
@@ -483,7 +484,7 @@ ui.save.onclick = async () => {
     ui.preview.pause();
     if (!videoBlob || !songFile || !Number.isFinite(ui.preview.duration) || !ui.preview.duration) throw new Error('Video is not ready to save yet.');
     message('Preparing export…');
-    const { exportRecording } = await import('/fast-export.js?v=27');
+    const { exportRecording } = await import('/fast-export.js?v=28');
     const blob = await exportRecording({ video: videoBlob, song: songFile, duration: ui.preview.duration, delay: songStart + offset(), startOffset: recordedSongOffset, mirrored: recordedMirrored, onProgress: message });
     if (!blob.size) throw new Error('The exported video is empty.');
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -495,4 +496,4 @@ ui.save.onclick = async () => {
   finally { exporting = false; ui.save.disabled = false; ui.again.disabled = false; ui.offset.disabled = false; ui.offsetValue.disabled = false; }
 };
 format();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=27').catch(console.warn);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=28').catch(console.warn);
